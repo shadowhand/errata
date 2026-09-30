@@ -1,0 +1,9 @@
+.phpunit.result.cache
+build/
+vendor/
+
+# composer.phar MUST NOT be committed.
+composer.phar
+
+# composer.lock SHOULD NOT be committed for libraries.
+composer.lock

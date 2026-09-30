@@ -1,0 +1,54 @@
+#:schema https://mago.carthage.software/1.48.0/schema.json
+# Welcome to Mago!
+# For full documentation, see https://mago.carthage.software/tools/overview
+version = "1"
+php-version = "8.4.0"
+
+[source]
+workspace = "."
+paths = ["src/", "tests/"]
+includes = ["vendor"]
+excludes = []
+
+[source.glob]
+literal-separator = true
+
+[formatter]
+preset = "default"
+
+[linter]
+integrations = ["phpunit"]
+
+[linter.rules]
+assertion-style = { style = "this" }
+too-many-methods = { exclude = ["tests/**/*.php"] }
+ambiguous-constant-access = { enabled = true }
+ambiguous-function-call = { enabled = true }
+no-alternative-syntax = { enabled = true }
+no-fully-qualified-global-class-like = { enabled = true }
+no-fully-qualified-global-constant = { enabled = true }
+no-fully-qualified-global-function = { enabled = true }
+
+[analyzer]
+plugins = []
+excludes = []
+ignore = [
+    "unhandled-thrown-type",
+]
+find-unused-expressions = true
+find-unused-definitions = true
+find-overly-wide-return-types = true
+analyze-dead-code = true
+check-throws = true
+check-missing-override = true
+find-unused-parameters = true
+check-missing-type-hints = true
+check-closure-missing-type-hints = true
+check-arrow-function-missing-type-hints = true
+enforce-class-finality = true
+require-api-or-internal = true
+check-experimental = true
+strict-list-index-checks = true
+strict-array-index-existence = true
+no-boolean-literal-comparison = true
+trust-existence-checks = false

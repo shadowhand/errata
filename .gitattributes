@@ -1,0 +1,13 @@
+/.agents              export-ignore
+/.claude              export-ignore
+/.editorconfig        export-ignore
+/.gitattributes       export-ignore
+/.gitignore           export-ignore
+/.github              export-ignore
+/AGENTS.md            export-ignore
+/CLAUDE.md            export-ignore
+/build                export-ignore
+/captainhook.json     export-ignore
+/mago.toml            export-ignore
+/phpunit.xml          export-ignore
+/tests                export-ignore
