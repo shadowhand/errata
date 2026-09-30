@@ -326,7 +326,7 @@ accepts `null` to assert the unset case.
 
 | Signal | Value | Result |
 |--------|-------|--------|
-| `APP_ENV` | `dev`, `development`, `local` (case-insensitive) | Development |
+| `APP_ENV` | `dev`, `development`, `local`, matched exactly | Development |
 | `APP_ENV` | anything else, including empty | fall through to `APP_DEBUG` |
 | `APP_DEBUG` | `1`, `true`, `on`, `yes` (case-insensitive) | Development |
 | `APP_DEBUG` | anything else, including empty | Production |
@@ -335,6 +335,13 @@ accepts `null` to assert the unset case.
 Unrecognized values fail safe to Production. `test` is *not* treated as
 development: a test-suite environment should not silently change the
 response contract, and tests construct `Environment` explicitly.
+
+`APP_ENV` is compared literally, so `DEV` and `Local` are unrecognized
+and fall through: environment values are lower-case by convention, and a
+mis-cased value silently selecting development mode is the failure this
+guards against. `APP_DEBUG` is read with `FILTER_VALIDATE_BOOLEAN`,
+which *is* case-insensitive (`TRUE`, `On`, `YES` all mean development),
+so the two signals differ in case handling by construction.
 
 ## Document shapes
 
