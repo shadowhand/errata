@@ -1,5 +1,5 @@
 {
-    "name": "snafu/snafu",
+    "name": "errata/errata",
     "description": "Exceptional error handler for JSON APIs",
     "license": "MIT",
     "type": "library",
@@ -12,14 +12,19 @@
     "require": {
         "php": "^8.4",
         "composer-runtime-api": "^2.0",
-        "psr/http-factory": "^1.1",
+        "php-standard-library/dict": "^6.3",
+        "php-standard-library/filesystem": "^6.0",
+        "php-standard-library/json": "^6.3",
+        "php-standard-library/str": "^6.0",
+        "php-standard-library/vec": "^6.3",
+        "psr/http-factory": "^1.0",
         "psr/http-server-middleware": "^1.0",
         "psr/log": "^2.0 || ^3.0"
     },
     "require-dev": {
         "captainhook/captainhook": "^5.29",
         "captainhook/hook-installer": "^1.0",
-        "carthage-software/mago": "^1.48",
+        "carthage-software/mago": "^1.50",
         "nyholm/psr7": "^1.8",
         "phpunit/phpunit": "^13.3",
         "rregeer/phpunit-coverage-check": "^0.3.1"
@@ -27,12 +32,12 @@
     "prefer-stable": true,
     "autoload": {
         "psr-4": {
-            "Snafu\\": "src/"
+            "Errata\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Snafu\\Tests\\": "tests/"
+            "Errata\\Tests\\": "tests/"
         }
     },
     "config": {

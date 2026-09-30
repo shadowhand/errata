@@ -6,7 +6,25 @@
 - Prefer established, well-maintained libraries when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason.
 - Lean on the dependencies already in the project before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types.
 - Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
-- Use conventional commits format when writing commit messages.
-- When applying fixes in response to a review, amend to the commit that introduced the issue, rather than creating a new commit.
-- Keep a changelog of all notable changes.
 - Use semantic versioning for release tags. Never include a `v` prefix on versions. Always sign release tags.
+- Keep a changelog of all notable changes.
+
+## Git
+
+- When applying fixes in branches, amend the commit that introduced the issue rather than creating a new commit.
+- Use conventional commits format when writing commit messages.
+- The maximum line width for commit bodies should be 120 characters.
+
+## GitHub
+
+- Pull request titles should be written using conventional commits format.
+
+## Markdown
+
+- The maximum line width for Markdown documents should be 120 characters. (This document is exempt from this rule!)
+- Documents under `docs/superpowers/` are exempt from this rule.
+
+## PHP
+
+- When necessary, promoted properties should have `@var` declarations instead of `@param`, e.g. for `array` types.
+- Tasks must be verified `composer run verify` after any code changes.

@@ -1,4 +1,4 @@
-#:schema https://mago.carthage.software/1.48.0/schema.json
+#:schema https://mago.carthage.software/1.50.0/schema.json
 # Welcome to Mago!
 # For full documentation, see https://mago.carthage.software/tools/overview
 version = "1"
@@ -17,20 +17,24 @@ literal-separator = true
 preset = "default"
 
 [linter]
-integrations = ["phpunit"]
+integrations = ["phpunit", "psl"]
 
 [linter.rules]
 assertion-style = { style = "this" }
 too-many-methods = { exclude = ["tests/**/*.php"] }
 ambiguous-constant-access = { enabled = true }
 ambiguous-function-call = { enabled = true }
+file-name = { enabled = true }
 no-alternative-syntax = { enabled = true }
 no-fully-qualified-global-class-like = { enabled = true }
 no-fully-qualified-global-constant = { enabled = true }
 no-fully-qualified-global-function = { enabled = true }
+no-ini-set = { enabled = true }
+psl-datetime = { enabled = false }
+psl-randomness-functions = { enabled = false }
 
 [analyzer]
-plugins = []
+plugins = ["psl"]
 excludes = []
 ignore = [
     "unhandled-thrown-type",
