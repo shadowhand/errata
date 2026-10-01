@@ -8,7 +8,7 @@ use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Snafu\Document\Frame;
-use Snafu\Document\SourceLine;
+use Snafu\Document\SourceBlock;
 
 use function is_array;
 use function json_decode;
@@ -21,10 +21,13 @@ final class FrameTest extends TestCase
 {
     public function testItIsEmptyWhenNothingIsKnown(): void
     {
-        $this->assertSame([], new Frame()->jsonSerialize());
+        $frame = new Frame();
+
+        $this->assertNull($frame->source);
+        $this->assertSame([], $frame->jsonSerialize());
     }
 
-    public function testItOmitsNullMembersAndEmptySource(): void
+    public function testItOmitsNullMembersAndNullSource(): void
     {
         $frame = new Frame(
             file: 'src/Foo.php',
@@ -33,7 +36,7 @@ final class FrameTest extends TestCase
             class: 'App\Foo',
             type: '->',
             args: [1],
-            source: [],
+            source: null,
         );
 
         $this->assertSame(
@@ -51,16 +54,34 @@ final class FrameTest extends TestCase
 
     public function testItIncludesSourceWhenPresent(): void
     {
-        $frame = new Frame(file: 'src/Foo.php', line: 12, source: [new SourceLine(12, '    $x = 1;')]);
+        $source = new SourceBlock(start: 11, end: 13, code: ['{', '    $x = 1;', '}']);
+        $frame = new Frame(file: 'src/Foo.php', line: 12, source: $source);
+
+        $this->assertSame($source, $frame->source);
+        $this->assertSame($source, $frame->jsonSerialize()['source'] ?? null);
 
         $this->assertSame(
             [
                 'file' => 'src/Foo.php',
                 'line' => 12,
-                'source' => [['line' => 12, 'code' => '    $x = 1;']],
+                'source' => ['start' => 11, 'end' => 13, 'code' => ['{', '    $x = 1;', '}']],
             ],
             self::json($frame),
         );
+    }
+
+    public function testItIncludesSourceWithEmptyCode(): void
+    {
+        $frame = new Frame(source: new SourceBlock(start: 12, end: 12, code: ['']));
+
+        $this->assertSame(['source' => ['start' => 12, 'end' => 12, 'code' => ['']]], self::json($frame));
+    }
+
+    public function testItIncludesSourceWithWhitespaceOnlyCode(): void
+    {
+        $frame = new Frame(source: new SourceBlock(start: 11, end: 12, code: [' \t ', '\t  ']));
+
+        $this->assertSame(['source' => ['start' => 11, 'end' => 12, 'code' => [' \t ', '\t  ']]], self::json($frame));
     }
 
     public function testItEmitsAnEmptyArgumentListThatPhpReported(): void

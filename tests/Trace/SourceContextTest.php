@@ -7,10 +7,9 @@ namespace Snafu\Tests\Trace;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SourceLine;
+use Snafu\Document\SourceBlock;
 use Snafu\Trace\SourceContext;
 
-use function array_map;
 use function bin2hex;
 use function file_put_contents;
 use function is_file;
@@ -31,53 +30,105 @@ final class SourceContextTest extends TestCase
         $this->context = new SourceContext();
     }
 
-    public function testItReturnsTheFiveLineWindowAroundTheLine(): void
+    public function testItReturnsSevenContiguousLinesAndPreservesBlankLines(): void
     {
-        $window = $this->context->window(self::FIXTURE, 5);
+        $source = $this->context->window(self::FIXTURE, 5);
 
+        $this->assertInstanceOf(SourceBlock::class, $source);
         $this->assertSame(
             [
-                ['line' => 3, 'code' => 'function snafu_fixture_alpha(): void'],
-                ['line' => 4, 'code' => '{'],
-                ['line' => 5, 'code' => '    $alpha = 1;'],
-                ['line' => 7, 'code' => '    $beta = 2;'],
+                'start' => 2,
+                'end' => 8,
+                'code' => [
+                    '',
+                    'function snafu_fixture_alpha(): void',
+                    '{',
+                    '    $alpha = 1;',
+                    '',
+                    '    $beta = 2;',
+                    '}',
+                ],
             ],
-            self::json($window),
+            $source->jsonSerialize(),
         );
     }
 
-    public function testItClampsTheWindowAtTheStartOfTheFile(): void
+    public function testItClampsTheWindowAtTheStartWithoutCompensating(): void
     {
-        $window = $this->context->window(self::FIXTURE, 1);
+        $source = $this->context->window(self::FIXTURE, 1);
 
-        $this->assertSame([1, 3], array_map(static fn(SourceLine $line): int => $line->line, $window));
+        $this->assertInstanceOf(SourceBlock::class, $source);
+        $this->assertSame(
+            [
+                'start' => 1,
+                'end' => 4,
+                'code' => ['<?php declare(strict_types=1);', '', 'function snafu_fixture_alpha(): void', '{'],
+            ],
+            $source->jsonSerialize(),
+        );
     }
 
-    public function testItClampsTheWindowAtTheEndOfTheFile(): void
+    public function testItClampsTheWindowAtTheEndWithoutCompensating(): void
     {
-        $window = $this->context->window(self::FIXTURE, 13);
+        $source = $this->context->window(self::FIXTURE, 13);
 
-        $this->assertSame([11, 12, 13], array_map(static fn(SourceLine $line): int => $line->line, $window));
+        $this->assertInstanceOf(SourceBlock::class, $source);
+        $this->assertSame(
+            [
+                'start' => 10,
+                'end' => 13,
+                'code' => ['function snafu_fixture_omega(): void', '{', '    $omega = 3;', '}'],
+            ],
+            $source->jsonSerialize(),
+        );
     }
 
-    public function testItReturnsNothingForALinePastTheEndOfTheFile(): void
+    public function testItReturnsNullForAReportedLineOutsideTheFile(): void
     {
-        $this->assertSame([], $this->context->window(self::FIXTURE, 999));
+        $this->assertNull($this->context->window(self::FIXTURE, 0));
+        $this->assertNull($this->context->window(self::FIXTURE, 999));
     }
 
-    public function testItReturnsNothingForALineBeforeTheStartOfTheFile(): void
+    public function testItReturnsNullForAnEmptyFile(): void
     {
-        $this->assertSame([], $this->context->window(self::FIXTURE, 0));
+        $this->assertNull($this->windowFromContents('', 1));
     }
 
-    public function testItReturnsNothingForAMissingFile(): void
+    public function testItReturnsNullForAMissingFile(): void
     {
-        $this->assertSame([], $this->context->window('/nonexistent/snafu/window.php', 1));
+        $this->assertNull($this->context->window('/nonexistent/snafu/window.php', 1));
     }
 
-    public function testItReturnsNothingForADirectory(): void
+    public function testItReturnsNullForADirectory(): void
     {
-        $this->assertSame([], $this->context->window(__DIR__ . '/../Fixtures/source', 1));
+        $this->assertNull($this->context->window(__DIR__ . '/../Fixtures/source', 1));
+    }
+
+    public function testItPreservesWhitespaceAndNormalizesLineSeparators(): void
+    {
+        $source = $this->windowFromContents("\t  \r\n\r\n  \$value = 1; \t\r\n \t", 3);
+
+        $this->assertInstanceOf(SourceBlock::class, $source);
+        $this->assertSame(
+            ['start' => 1, 'end' => 4, 'code' => ["\t  ", '', "  \$value = 1; \t", " \t"]],
+            $source->jsonSerialize(),
+        );
+    }
+
+    public function testItKeepsAnAllBlankWindowAsPresentSource(): void
+    {
+        $source = $this->windowFromContents("\n\n\n\n\n\n\n", 4);
+
+        $this->assertInstanceOf(SourceBlock::class, $source);
+        $this->assertSame(['start' => 1, 'end' => 7, 'code' => ['', '', '', '', '', '', '']], $source->jsonSerialize());
+    }
+
+    public function testItKeepsAnEmptySingleLineBlockDistinctFromMissingContext(): void
+    {
+        $source = $this->windowFromContents("\n", 1);
+
+        $this->assertInstanceOf(SourceBlock::class, $source);
+        $this->assertSame(['start' => 1, 'end' => 1, 'code' => ['']], $source->jsonSerialize());
     }
 
     public function testItCachesFileContentsAcrossCalls(): void
@@ -88,18 +139,16 @@ final class SourceContextTest extends TestCase
             file_put_contents(filename: $path, data: "<?php\n\n\$first = 1;\n");
             $first = $this->context->window($path, 3);
 
+            $this->assertInstanceOf(SourceBlock::class, $first);
             $this->assertSame(
-                [
-                    ['line' => 1, 'code' => '<?php'],
-                    ['line' => 3, 'code' => '$first = 1;'],
-                ],
-                self::json($first),
+                ['start' => 1, 'end' => 3, 'code' => ['<?php', '', '$first = 1;']],
+                $first->jsonSerialize(),
             );
 
             file_put_contents(filename: $path, data: "<?php\n\n\$second = 2;\n");
             $second = $this->context->window($path, 3);
 
-            $this->assertSame(self::json($first), self::json($second));
+            $this->assertEquals($first, $second);
         } finally {
             if (is_file($path)) {
                 unlink($path);
@@ -107,19 +156,18 @@ final class SourceContextTest extends TestCase
         }
     }
 
-    /**
-     * @param list<SourceLine> $lines
-     *
-     * @return list<array<string, mixed>>
-     */
-    private static function json(array $lines): array
+    private function windowFromContents(string $contents, int $line): ?SourceBlock
     {
-        $encoded = [];
+        $path = sys_get_temp_dir() . '/snafu-window-' . bin2hex(random_bytes(8)) . '.php';
 
-        foreach ($lines as $line) {
-            $encoded[] = $line->jsonSerialize();
+        try {
+            file_put_contents(filename: $path, data: $contents);
+
+            return new SourceContext()->window($path, $line);
+        } finally {
+            if (is_file($path)) {
+                unlink($path);
+            }
         }
-
-        return $encoded;
     }
 }

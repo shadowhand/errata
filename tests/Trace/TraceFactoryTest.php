@@ -8,6 +8,7 @@ use LogicException;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 use Snafu\Path\PathRelativizer;
 use Snafu\Trace\ArgumentSanitizer;
@@ -17,10 +18,15 @@ use stdClass;
 
 use function array_column;
 use function array_slice;
+use function bin2hex;
 use function dirname;
+use function file_put_contents;
 use function is_array;
 use function json_decode;
 use function json_encode;
+use function random_bytes;
+use function sys_get_temp_dir;
+use function unlink;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -53,6 +59,8 @@ final class TraceFactoryTest extends TestCase
         ]);
 
         $this->assertFalse($trace->truncated);
+        $this->assertInstanceOf(SourceBlock::class, $trace->frames[0]->source ?? null);
+        $this->assertNull($trace->frames[1]->source ?? null);
         $this->assertSame(
             [
                 [
@@ -60,10 +68,17 @@ final class TraceFactoryTest extends TestCase
                     'line' => 5,
                     'function' => 'inner',
                     'source' => [
-                        ['line' => 3, 'code' => 'function snafu_fixture_alpha(): void'],
-                        ['line' => 4, 'code' => '{'],
-                        ['line' => 5, 'code' => '    $alpha = 1;'],
-                        ['line' => 7, 'code' => '    $beta = 2;'],
+                        'start' => 2,
+                        'end' => 8,
+                        'code' => [
+                            '',
+                            'function snafu_fixture_alpha(): void',
+                            '{',
+                            '    $alpha = 1;',
+                            '',
+                            '    $beta = 2;',
+                            '}',
+                        ],
                     ],
                 ],
                 [
@@ -72,6 +87,40 @@ final class TraceFactoryTest extends TestCase
                     'function' => 'outer',
                 ],
             ],
+            $this->serialize($trace),
+        );
+    }
+
+    public function testItRetainsEmptyAndWhitespaceOnlySource(): void
+    {
+        foreach ([
+            ["\n", 1, ['']],
+            [" \t \r\n\t  \r\n", 2, [" \t ", "\t  "]],
+        ] as [$contents, $end, $code]) {
+            $path = sys_get_temp_dir() . '/snafu-trace-source-' . bin2hex(random_bytes(8)) . '.php';
+            file_put_contents(filename: $path, data: $contents);
+
+            try {
+                $trace = $this->factory->frames([['file' => $path, 'line' => 1]]);
+
+                $this->assertInstanceOf(SourceBlock::class, $trace->frames[0]->source ?? null);
+                $this->assertSame(
+                    [['file' => $path, 'line' => 1, 'source' => ['start' => 1, 'end' => $end, 'code' => $code]]],
+                    $this->serialize($trace),
+                );
+            } finally {
+                unlink($path);
+            }
+        }
+    }
+
+    public function testItOmitsSourceWhenTheFrameHasNoLine(): void
+    {
+        $trace = $this->factory->frames([['file' => $this->root . self::ROOT_FIXTURE, 'function' => 'inner']]);
+
+        $this->assertNull($trace->frames[0]->source ?? null);
+        $this->assertSame(
+            [['file' => 'tests/Fixtures/source/window.php', 'function' => 'inner']],
             $this->serialize($trace),
         );
     }
@@ -106,6 +155,7 @@ final class TraceFactoryTest extends TestCase
     {
         $trace = $this->factory->frames([['function' => 'strlen', 'args' => []]]);
 
+        $this->assertNull($trace->frames[0]->source ?? null);
         $this->assertSame([['function' => 'strlen', 'args' => []]], $this->serialize($trace));
     }
 
@@ -157,6 +207,7 @@ final class TraceFactoryTest extends TestCase
             'function' => 'inner',
         ]]);
 
+        $this->assertNull($trace->frames[0]->source ?? null);
         $this->assertSame(
             [['file' => 'tests/Fixtures/source/window.php', 'line' => 900, 'function' => 'inner']],
             $this->serialize($trace),

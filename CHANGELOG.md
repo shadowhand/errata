@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Changed
+
+- Full responses now report source context as one `{start, end, code}` block with one `code` array element per line.
+  It covers the reported line ±3, clamped to the file, with blank lines and whitespace preserved.
+
 ### Added
 
 - Runnable PHP development-server demos for minimal and full responses,
@@ -18,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ExceptionHandler`, which maps a `Throwable` to a `Problem` document.
 - `Mode` with full and minimal modes, detected from
   `APP_ENV` and `APP_DEBUG`.
-- Full documents with message, origin, five-line source windows,
+- Full documents with message, origin, source blocks of up to seven lines,
   relative paths, traces, and chained causes.
 - Trace frames with truncated frame arguments; `#[\SensitiveParameter]`
   values are redacted and `__toString()` is never invoked.

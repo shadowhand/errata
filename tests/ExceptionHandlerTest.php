@@ -10,12 +10,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Snafu\Document\Problem;
+use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 use Snafu\ExceptionHandler;
 use Snafu\Mode;
 
 use function dirname;
+use function json_decode;
 use function json_encode;
+
+use const JSON_THROW_ON_ERROR;
 
 #[CoversClass(ExceptionHandler::class)]
 final class ExceptionHandlerTest extends TestCase
@@ -55,45 +59,96 @@ final class ExceptionHandlerTest extends TestCase
 
     public function testFullCarriesTheMessageLocationAndWindow(): void
     {
-        $problem = $this->handler(Mode::Full)->handle(new RuntimeException('boom'));
-
+        $exception = new RuntimeException('boom');
+        $problem = $this->handler(Mode::Full)->handle($exception);
         $this->assertSame('RuntimeException: boom', $problem->detail);
         $this->assertSame('tests/ExceptionHandlerTest.php', $problem->file);
-        $this->assertIsInt($problem->line);
-        $this->assertNotSame([], $problem->source);
+        $this->assertSame($exception->getLine(), $problem->line);
+        $this->assertInstanceOf(SourceBlock::class, $problem->source);
+        $this->assertSame($exception->getLine() - 3, $problem->source->start);
+        $this->assertSame($exception->getLine() + 3, $problem->source->end);
+        $this->assertContains('        $exception = new RuntimeException(\'boom\');', $problem->source->code);
+        $document = $this->document($problem);
+        /** @var array{source: array{start: int, end: int, code: list<string>}} $document */
+        $this->assertArrayHasKey('source', $document);
+        $this->assertSame($problem->source->jsonSerialize(), $document['source']);
         $this->assertInstanceOf(Trace::class, $problem->trace);
         $this->assertStringNotContainsString('traceTruncated', (string) json_encode($problem));
         $this->assertNull($problem->previous);
     }
 
-    public function testItUsesTheStatusCodeInterfaceWhenInRange(): void
+    public function testItUsesTheStatusCodeInterfaceOnlyWhenTheStatusIsInRange(): void
     {
-        $problem = $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(404));
+        $handler = $this->handler(Mode::Minimal);
 
-        $this->assertSame(404, $problem->status);
+        $this->assertSame(404, $handler->handle(new ExceptionHandlerStatusFixture(404))->status);
+        $this->assertSame(500, $handler->handle(new ExceptionHandlerStatusFixture(200))->status);
+        $this->assertSame(500, $handler->handle(new ExceptionHandlerStatusFixture(600))->status);
     }
 
-    public function testItFallsBackToInternalServerErrorForATooLowStatus(): void
+    public function testMinimalOmitsTheCauseButFullNestsItWithSourceBlocks(): void
     {
-        $this->assertSame(500, $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(200))->status);
-    }
-
-    public function testItFallsBackToInternalServerErrorForATooHighStatus(): void
-    {
-        $this->assertSame(500, $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(600))->status);
-    }
-
-    public function testMinimalOmitsTheCauseButFullNestsIt(): void
-    {
-        $exception = new RuntimeException('outer', 0, new LogicException('inner'));
+        $exception = $this->chainedFailure();
 
         $this->assertNull($this->handler(Mode::Minimal)->handle($exception)->previous);
 
-        $previous = $this->handler(Mode::Full)->handle($exception)->previous;
+        $problem = $this->handler(Mode::Full)->handle($exception);
+        $previous = $problem->previous;
 
         $this->assertInstanceOf(Problem::class, $previous);
         $this->assertSame('LogicException: inner', $previous->detail);
         $this->assertSame('Internal Server Error', $previous->title);
+        $this->assertSame('tests/ExceptionHandlerTest.php', $previous->file);
+
+        $cause = $exception->getPrevious();
+
+        $this->assertInstanceOf(LogicException::class, $cause);
+        $this->assertSame($cause->getLine(), $previous->line);
+        $this->assertInstanceOf(SourceBlock::class, $problem->source);
+        $this->assertInstanceOf(SourceBlock::class, $previous->source);
+        $this->assertSame($exception->getLine() - 3, $problem->source->start);
+        $this->assertSame($cause->getLine() - 3, $previous->source->start);
+        $this->assertContains('        return new RuntimeException(\'outer\', 0, $previous);', $problem->source->code);
+        $this->assertContains('        $previous = new LogicException(\'inner\');', $previous->source->code);
+
+        $serializedProblem = $this->document($problem);
+        /** @var array{previous: array<string, mixed>} $serializedProblem */
+        $this->assertArrayHasKey('previous', $serializedProblem);
+        $serializedPrevious = $serializedProblem['previous'];
+
+        $this->assertIsArray($serializedPrevious);
+        $this->assertSame($this->document($previous), $serializedPrevious);
+
+        $missingSource = new class($this->root . '/missing-source.php') extends RuntimeException {
+            public function __construct(string $file)
+            {
+                parent::__construct('unavailable');
+                $this->file = $file;
+                $this->line = 1;
+            }
+        };
+        $unavailable = $this->handler(Mode::Full)->handle($missingSource);
+
+        $this->assertSame('missing-source.php', $unavailable->file);
+        $this->assertSame(1, $unavailable->line);
+        $this->assertNull($unavailable->source);
+        $this->assertArrayNotHasKey('source', $this->document($unavailable));
+        $this->assertInstanceOf(Trace::class, $unavailable->trace);
+        $this->assertNotEmpty($unavailable->trace->frames);
+
+        $outer = $this->handler(Mode::Full)->handle(new RuntimeException('outer', 0, $missingSource));
+        $unavailablePrevious = $outer->previous;
+
+        $this->assertInstanceOf(SourceBlock::class, $outer->source);
+        $this->assertInstanceOf(Problem::class, $unavailablePrevious);
+        $this->assertNull($unavailablePrevious->source);
+        $serializedOuter = $this->document($outer);
+        /** @var array{previous: array<string, mixed>} $serializedOuter */
+        $this->assertArrayHasKey('previous', $serializedOuter);
+        $serializedPrevious = $serializedOuter['previous'];
+
+        $this->assertIsArray($serializedPrevious);
+        $this->assertArrayNotHasKey('source', $serializedPrevious);
     }
 
     public function testItNestsEveryLinkOfALongCauseChain(): void
@@ -136,6 +191,30 @@ final class ExceptionHandlerTest extends TestCase
 
         $this->assertSame([], $problem->trace?->frames);
         $this->assertTrue($problem->trace->truncated);
+    }
+
+    private function chainedFailure(): RuntimeException
+    {
+        $previous = new LogicException('inner');
+
+        return new RuntimeException('outer', 0, $previous);
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private function document(Problem $problem): array
+    {
+        /** @var mixed $decoded */
+        $decoded = json_decode(
+            json: json_encode($problem, JSON_THROW_ON_ERROR),
+            associative: true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        $this->assertIsArray($decoded);
+
+        return $decoded;
     }
 
     private function handler(Mode $mode, int $traceLimit = 30): ExceptionHandler

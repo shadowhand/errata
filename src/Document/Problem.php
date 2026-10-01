@@ -34,8 +34,7 @@ final readonly class Problem implements JsonSerializable
         public ?string $detail = null,
         public ?string $file = null,
         public ?int $line = null,
-        /** @var list<SourceLine> */
-        public array $source = [],
+        public ?SourceBlock $source = null,
         public ?Trace $trace = null,
         public ?Problem $previous = null,
     ) {}
@@ -60,7 +59,6 @@ final readonly class Problem implements JsonSerializable
      * as `class: message`, the origin, the source window, the trace,
      * and the cause.
      *
-     * @param list<SourceLine> $source
      *
      * @mago-ignore lint:excessive-parameter-list
      */
@@ -69,7 +67,7 @@ final readonly class Problem implements JsonSerializable
         int $status,
         string $file,
         int $line,
-        array $source,
+        ?SourceBlock $source,
         Trace $trace,
         ?Problem $previous,
     ): self {
@@ -112,7 +110,7 @@ final readonly class Problem implements JsonSerializable
             $document['line'] = $this->line;
         }
 
-        if ($this->source !== []) {
+        if ($this->source !== null) {
             $document['source'] = $this->source;
         }
 

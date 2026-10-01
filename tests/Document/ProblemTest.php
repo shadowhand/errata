@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Snafu\Document\Problem;
-use Snafu\Document\SourceLine;
+use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 
 use function is_array;
@@ -77,16 +77,19 @@ final class ProblemTest extends TestCase
     public function testDevelopmentCarriesEveryDevelopmentMember(): void
     {
         $previous = Problem::minimal(new RuntimeException('cause'), 500);
+        $source = new SourceBlock(start: 12, end: 12, code: ['    throw new RuntimeException();']);
         $problem = Problem::development(
             exception: new RuntimeException('boom', 3),
             status: 422,
             file: 'src/Foo.php',
             line: 12,
-            source: [new SourceLine(12, '    throw new RuntimeException();')],
+            source: $source,
             trace: new Trace([], false),
             previous: $previous,
         );
 
+        $this->assertSame($source, $problem->source);
+        $this->assertSame($source, $problem->jsonSerialize()['source'] ?? null);
         $this->assertSame(
             [
                 'type' => 'about:blank',
@@ -96,7 +99,7 @@ final class ProblemTest extends TestCase
                 'detail' => 'RuntimeException: boom',
                 'file' => 'src/Foo.php',
                 'line' => 12,
-                'source' => [['line' => 12, 'code' => '    throw new RuntimeException();']],
+                'source' => ['start' => 12, 'end' => 12, 'code' => ['    throw new RuntimeException();']],
                 'trace' => [],
                 'previous' => [
                     'type' => 'about:blank',
@@ -110,23 +113,55 @@ final class ProblemTest extends TestCase
         );
     }
 
-    public function testDevelopmentOmitsAnEmptySourceAndANullPrevious(): void
+    public function testDevelopmentOmitsANullSourceAndANullPrevious(): void
     {
         $problem = Problem::development(
             exception: new RuntimeException('boom'),
             status: 500,
             file: 'src/Foo.php',
             line: 1,
-            source: [],
+            source: null,
             trace: new Trace([], false),
             previous: null,
         );
 
         $serialized = $problem->jsonSerialize();
 
+        $this->assertNull($problem->source);
         $this->assertArrayNotHasKey('source', $serialized);
         $this->assertArrayNotHasKey('previous', $serialized);
         $this->assertArrayNotHasKey('traceTruncated', $serialized);
+    }
+
+    public function testDevelopmentIncludesSourceWithEmptyCode(): void
+    {
+        $problem = Problem::development(
+            exception: new RuntimeException('boom'),
+            status: 500,
+            file: 'src/Foo.php',
+            line: 1,
+            source: new SourceBlock(start: 1, end: 1, code: ['']),
+            trace: new Trace([], false),
+            previous: null,
+        );
+
+        $this->assertSame(['start' => 1, 'end' => 1, 'code' => ['']], self::json($problem)['source'] ?? null);
+    }
+
+    public function testItIncludesSourceWithWhitespaceOnlyCodeWhenConstructedDirectly(): void
+    {
+        $problem = new Problem(
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            code: 0,
+            source: new SourceBlock(start: 1, end: 2, code: [' \t ', '\t  ']),
+        );
+
+        $this->assertSame(
+            ['start' => 1, 'end' => 2, 'code' => [' \t ', '\t  ']],
+            self::json($problem)['source'] ?? null,
+        );
     }
 
     public function testDevelopmentFlagsATruncatedTrace(): void
@@ -136,7 +171,7 @@ final class ProblemTest extends TestCase
             status: 500,
             file: 'src/Foo.php',
             line: 1,
-            source: [],
+            source: null,
             trace: new Trace([], true),
             previous: null,
         );
@@ -156,6 +191,7 @@ final class ProblemTest extends TestCase
             line: 2,
         );
 
+        $this->assertNull($problem->source);
         $this->assertSame(
             [
                 'type' => 'about:blank',
