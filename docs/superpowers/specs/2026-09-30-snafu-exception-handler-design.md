@@ -15,10 +15,14 @@ Success criteria:
 
 - A caught exception yields `application/problem+json` with an HTTP
   status and a body, in both modes, always.
-- Production bodies contain the short exception class name and the
-  exception code and nothing else that could leak internals.
-- Development bodies contain the message, the origin `file`/`line`, and
-  a frame list, each with a 5-line context window.
+- Minimal bodies contain the status phrase from
+  `codeinc/http-reason-phrase-lookup`'s
+  `HttpReasonPhraseLookup::getReasonPhrase()` (or the code itself when
+  there is no phrase there), the
+  short exception class name in `detail`, and the exception code, and
+  nothing else that could leak internals.
+- Full bodies contain `detail` as `class: message`, the origin
+  `file`/`line`, and a frame list, each with a 5-line context window.
 - No code path in the middleware can itself throw, including when
   logging fails or when JSON encoding fails.
 
@@ -27,9 +31,11 @@ Success criteria:
 1. All output is JSON.
 2. A PSR-15 middleware is included.
 3. All exceptions are logged via PSR-3.
-4. Production mode and development mode.
-5. Production: short exception class name and code only.
-6. Development: additionally message, file, line, trace.
+4. A minimal mode and a full mode.
+5. Minimal: status phrase from `codeinc/http-reason-phrase-lookup`'s
+   `HttpReasonPhraseLookup::getReasonPhrase()`, short exception class
+   name in `detail`, and code only.
+6. Full: additionally `detail` as `class: message`, file, line, trace.
 7. Trace paths are relative to the application directory.
 8. Context is always 5 lines (the error line, ±2), for the origin and
    for every frame alike.
@@ -43,25 +49,25 @@ later changes.
 | # | Decision | Choice |
 |---|----------|--------|
 | 1 | Body format | RFC 9457 problem document, `application/problem+json` |
-| 2 | `type` member | Always `about:blank` |
-| 3 | Production body | Development-only members omitted entirely, never `null` |
+| 2 | `type` member | Always `about:blank`; `title` is the recommended status phrase, from `codeinc/http-reason-phrase-lookup`'s `HttpReasonPhraseLookup::getReasonPhrase()` (RFC 9457 §4.2.1) |
+| 3 | Minimal body | Full-only members omitted entirely, never `null`; `detail` is the short class name |
 | 4 | Class structure | Separate `ExceptionHandler` + `ExceptionMiddleware` |
 | 5 | Logging | `LoggerInterface` optional (null disables), level configurable, default `LogLevel::ERROR` |
 | 6 | Trace frame shape | Object with `{line, code}` snippet entries, snippet member named `source` |
 | 7 | Vendor detection | None: no vendor flag, no vendor-directory config; every frame is treated identically |
-| 8 | Frame order | Innermost-first (reversed `getTrace()` order) |
-| 9 | Frame arguments | Included, truncated; `#[\SensitiveParameter]` respected |
+| 8 | Frame order | Innermost-first — PHP's own `getTrace()` order, nothing reversed |
+| 9 | Frame arguments | Included, truncated; `#[\SensitiveParameter]` respected; omitted when PHP does not report them |
 | 10 | Path base | Composer-derived default, individually overridable |
 | 11 | Trace length | Capped, default 30 frames, keeps the innermost frames |
-| 12 | Environment source | `APP_ENV`, then `APP_DEBUG`, then Production |
+| 12 | Mode source | `APP_ENV`, then `APP_DEBUG`, then Minimal |
 | 13 | Non-500 status | Opt-in `StatusCodeInterface`; interface only, no shipped exception classes |
 | 14 | `code` member | `(int) $exception->getCode()` |
 | 15 | Handler return | `Problem` value object (`JsonSerializable`) |
-| 16 | Argument truncation | Depth 5, 50 items, 500-char strings |
-| 17 | Chained exceptions | Recursed in development, omitted in production |
+| 16 | Argument truncation | Depth 5, 50 items, 500-byte strings |
+| 17 | Chained exceptions | Recursed in full mode, omitted in minimal mode |
 | 18 | Logger failure | Caught, reported with `error_log()`, processing continues |
 | 19 | Log context | `exception`, `method`, `path`, `status` |
-| 20 | Objects in arguments | Class name plus public properties |
+| 20 | Objects in arguments | Class name plus at most 50 public properties |
 | 21 | Origin frame | Top-level `file`/`line`/`source` only; not duplicated into `trace` |
 | 22 | Response headers | `Content-Type: application/problem+json` only |
 | 23 | Context window | Always 5 lines (`line ± 2`), origin and frames alike; blank stripping can yield fewer |
@@ -69,13 +75,15 @@ later changes.
 | 25 | Map payloads | String-keyed maps are carried by a DTO and serialized as a JSON object |
 | 26 | API markers | Document DTOs are `@api`; collaborator classes are `@internal` |
 | 27 | Handler seam | `ExceptionHandlerInterface`, implemented by `ExceptionHandler`, is what `ExceptionMiddleware` depends on |
+| 28 | `title` / `detail` | `title` is the phrase for the status from `codeinc/http-reason-phrase-lookup`'s `HttpReasonPhraseLookup::getReasonPhrase()`, or the code when no phrase is registered; `detail` carries the exception identity — short class name in minimal, `class: message` in full |
 
 Known, accepted consequences:
 
 - Decision 14 flattens `PDOException`'s SQLSTATE string code to `0`.
   Preserving it would make the member a `int|string` union.
-- Decision 8 reverses standard PHP order; clients must not assume
-  `getTrace()` ordering.
+- Decision 8 keeps PHP's own order, which is already innermost-first;
+  clients must still not assume `getTrace()` ordering across PHP
+  versions.
 - Decision 24 cannot reach PHP's own boundary: `jsonSerialize()` itself
   must return an `array`, and `Throwable::getTrace()` hands over an
   array. Arrays are therefore used at those two edges by necessity, and
@@ -92,7 +100,7 @@ Known, accepted consequences:
 
 ```
 src/
-  Environment.php                        enum Environment: string
+  Mode.php                               enum Mode: string
   ExceptionHandler.php                   final class, implements ExceptionHandlerInterface
   ExceptionHandlerInterface.php          interface
   Http/StatusCodeInterface.php           interface
@@ -116,7 +124,7 @@ that namespace *is* the JSON contract. `Trace/` holds the plumbing that
 produces it.
 
 Every class is `final` (mago `enforce-class-finality`). Document DTOs,
-`Environment`, `ExceptionHandler`, `ExceptionHandlerInterface`,
+`Mode`, `ExceptionHandler`, `ExceptionHandlerInterface`,
 `ExceptionMiddleware`, and `StatusCodeInterface` are marked `@api`;
 `Path/`, `Trace/`, and the internal members of the rest are marked
 `@internal` (mago `require-api-or-internal`). `Problem` is `@api`
@@ -134,10 +142,10 @@ nullable parameters.
 
 ```php
 /** @api */
-enum Environment: string
+enum Mode: string
 {
-    case Production = 'production';
-    case Development = 'development';
+    case Full = 'full';
+    case Minimal = 'minimal';
 
     public static function fromEnv(): self;
 }
@@ -162,7 +170,7 @@ interface ExceptionHandlerInterface
 final class ExceptionHandler implements ExceptionHandlerInterface
 {
     public function __construct(
-        private Environment $environment,
+        private Mode $mode,
         private ?string $projectDir = null,
         private int $traceLimit = 30,
     ) {}
@@ -196,9 +204,6 @@ mago's `check-missing-override`:
 /** @api */
 final readonly class Problem implements JsonSerializable
 {
-    /**
-     * @param list<SourceLine> $source
-     */
     public function __construct(
         public string $type,
         public string $title,
@@ -207,10 +212,31 @@ final readonly class Problem implements JsonSerializable
         public ?string $detail = null,
         public ?string $file = null,
         public ?int $line = null,
+        /** @var list<SourceLine> */
         public array $source = [],
         public ?Trace $trace = null,
         public ?Problem $previous = null,
     ) {}
+
+    /**
+     * The minimal document: the status phrase, the short class name as
+     * `detail`, and the code.
+     */
+    public static function minimal(Throwable $exception, int $status): self;
+
+    /**
+     * The full document: `minimal()` plus `detail` as `class: message`,
+     * the origin, the source window, the trace, and the cause.
+     */
+    public static function development(
+        Throwable $exception,
+        int $status,
+        string $file,
+        int $line,
+        array $source,
+        Trace $trace,
+        ?Problem $previous,
+    ): self;
 
     #[Override]
     public function jsonSerialize(): array;
@@ -219,10 +245,8 @@ final readonly class Problem implements JsonSerializable
 /** @api */
 final readonly class Trace implements JsonSerializable
 {
-    /**
-     * @param list<Frame> $frames
-     */
     public function __construct(
+        /** @var list<Frame> */
         public array $frames,
         public bool $truncated,
     ) {}
@@ -235,17 +259,15 @@ final readonly class Trace implements JsonSerializable
 /** @api */
 final readonly class Frame implements JsonSerializable
 {
-    /**
-     * @param list<mixed>       $args
-     * @param list<SourceLine>  $source
-     */
     public function __construct(
         public ?string $file = null,
         public ?int $line = null,
         public ?string $function = null,
         public ?string $class = null,
         public ?string $type = null,
-        public array $args = [],
+        /** @var list<mixed>|null */
+        public ?array $args = null,
+        /** @var list<SourceLine> */
         public array $source = [],
     ) {}
 
@@ -268,11 +290,9 @@ final readonly class SourceLine implements JsonSerializable
 /** @api */
 final readonly class SanitizedObject implements JsonSerializable
 {
-    /**
-     * @param array<string, mixed> $properties
-     */
     public function __construct(
         public string $class,
+        /** @var array<string, mixed> */
         public array $properties,
     ) {}
 
@@ -283,10 +303,8 @@ final readonly class SanitizedObject implements JsonSerializable
 /** @api */
 final readonly class SanitizedMap implements JsonSerializable
 {
-    /**
-     * @param array<string, mixed> $entries
-     */
     public function __construct(
+        /** @var array<string, mixed> */
         public array $entries,
     ) {}
 
@@ -299,13 +317,20 @@ Serialization rules:
 
 - `Problem::jsonSerialize()` emits members in this order:
   `type`, `title`, `status`, `code`, `detail`, `file`, `line`, `source`,
-  `trace`, `traceTruncated`, `previous`. It omits every member whose
-  value is `null` or `false`, and omits `source` when the list is empty.
+  `trace`, `traceTruncated`, `previous`. `title` is the status phrase
+  (from `codeinc/http-reason-phrase-lookup`'s
+  `HttpReasonPhraseLookup::getReasonPhrase()`) and `detail` the exception
+  identity (short class name in minimal,
+  `class: message` in full). It omits every member whose value is `null`
+  or `false`, and omits `source` when the list is empty.
   `trace` is emitted as the frame list (`$this->trace` serializes to it);
   `traceTruncated` is emitted only when `$this->trace->truncated` is
   `true`, so `Problem` holds no duplicated truncation flag.
-- `Frame::jsonSerialize()` omits null members only. `args` is always
-  present, including `args: []`; `source` is omitted when empty.
+- `Frame::jsonSerialize()` omits null members, including a null `args`.
+  `args` is emitted only when PHP reported arguments for the frame, so
+  `args: []` is a reported empty list and an absent `args` member means
+  PHP did not report arguments (as with
+  `zend.exception_ignore_args=On`). `source` is omitted when empty.
 - `Trace::jsonSerialize()` returns the frame list, so a `Trace` is
   exactly the value of the document's `trace` member.
 - `SanitizedObject` serializes as
@@ -317,49 +342,49 @@ a sanitized argument that is a PHP map is returned as a DTO, not a bare
 array, while its JSON form stays an object. `Problem`, `Trace`, and
 `Frame` likewise never hand out structural arrays.
 
-### Environment detection
+### Mode detection
 
-`Environment::fromEnv()` reads `APP_ENV` first, then `APP_DEBUG`, via
+`Mode::fromEnv()` reads `APP_ENV` first, then `APP_DEBUG`, via
 `getenv()`. It takes no parameters; tests control it with PHPUnit's
 `#[WithEnvironmentVariable('APP_ENV', 'dev')]`, which is repeatable and
 accepts `null` to assert the unset case.
 
 | Signal | Value | Result |
 |--------|-------|--------|
-| `APP_ENV` | `dev`, `development`, `local`, matched exactly | Development |
+| `APP_ENV` | `dev`, `development`, `local`, matched exactly | Full |
 | `APP_ENV` | anything else, including empty | fall through to `APP_DEBUG` |
-| `APP_DEBUG` | `1`, `true`, `on`, `yes` (case-insensitive) | Development |
-| `APP_DEBUG` | anything else, including empty | Production |
-| neither | — | Production |
+| `APP_DEBUG` | `1`, `true`, `on`, `yes` (case-insensitive) | Full |
+| `APP_DEBUG` | anything else, including empty | Minimal |
+| neither | — | Minimal |
 
-Unrecognized values fail safe to Production. `test` is *not* treated as
-development: a test-suite environment should not silently change the
-response contract, and tests construct `Environment` explicitly.
+Unrecognized values fail safe to Minimal. `test` is *not* treated as
+full: a test-suite environment should not silently change the
+response contract, and tests construct `Mode` explicitly.
 
 `APP_ENV` is compared literally, so `DEV` and `Local` are unrecognized
 and fall through: environment values are lower-case by convention, and a
-mis-cased value silently selecting development mode is the failure this
+mis-cased value silently selecting full mode is the failure this
 guards against. `APP_DEBUG` is read with `FILTER_VALIDATE_BOOLEAN`,
-which *is* case-insensitive (`TRUE`, `On`, `YES` all mean development),
+which *is* case-insensitive (`TRUE`, `On`, `YES` all mean full),
 so the two signals differ in case handling by construction.
 
 ## Document shapes
 
-Production, HTTP 500:
+Minimal, HTTP 500:
 
 ```json
-{"type":"about:blank","title":"RuntimeException","status":500,"code":0}
+{"type":"about:blank","title":"Internal Server Error","status":500,"code":0,"detail":"RuntimeException"}
 ```
 
-Development, HTTP 500:
+Full, HTTP 500:
 
 ```json
 {
   "type": "about:blank",
-  "title": "RuntimeException",
+  "title": "Internal Server Error",
   "status": 500,
   "code": 0,
-  "detail": "Something broke",
+  "detail": "RuntimeException: Something broke",
   "file": "src/Service/Thing.php",
   "line": 42,
   "source": [{"line": 42, "code": "        throw new RuntimeException('Something broke');"}],
@@ -386,9 +411,14 @@ Development, HTTP 500:
 }
 ```
 
-`title` is the short (unqualified) exception class name in both modes,
-per requirement 5. Requirement 6's `file`, `line`, and trace are the
-development-only members; `detail` carries the message.
+`title` is the recommended HTTP status phrase for the document's
+status — the phrase from `codeinc/http-reason-phrase-lookup`'s
+`HttpReasonPhraseLookup::getReasonPhrase()` —
+as RFC 9457 §4.2.1 requires when `type` is `about:blank`; a status with
+no phrase there (for example 599) falls back to the status code as a
+string. The exception identity is in `detail`: the
+short (unqualified) class name in minimal mode, `class: message` in
+full mode. `file`, `line`, and trace are the full-only members.
 
 `instance` is omitted: there is no request-id infrastructure to point at,
 and inventing a URI would be worse than omitting it.
@@ -459,15 +489,18 @@ Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 - `class` and `type` are omitted for plain function calls.
 - `type` is `->` for instance method calls and `::` for static calls,
   matching the keys PHP itself provides in a trace entry.
-- `args` is always present (possibly an empty list). PHP omits the
-  `args` key entirely when `zend.exception_ignore_args=On`, and
-  `TraceFactory` normalizes that to an empty list.
+- `args` is present only when PHP reported arguments for the frame.
+  PHP omits the `args` key entirely when
+  `zend.exception_ignore_args=On`; `TraceFactory` normalizes that (and a
+  malformed key) to `null`, so the member is omitted. A frame PHP
+  reports with an empty argument list still carries `args: []`.
 - `source` is omitted only when the frame's file is unreadable or
   missing.
 
-Frames are reversed, so `trace[0]` is the frame nearest the throw.
-`traceLimit` keeps the innermost N frames; dropping any frame sets
-`Trace::$truncated`, which `Problem` reports as `traceTruncated: true`.
+PHP already lists the frame nearest the throw first, so `trace[0]` is
+that frame. `traceLimit` keeps the innermost N frames; dropping any
+frame sets `Trace::$truncated`, which `Problem` reports as
+`traceTruncated: true`.
 
 ### Source windows
 
@@ -498,11 +531,11 @@ not loop forever. Contract:
 | Input | Output |
 |-------|--------|
 | `null`, `bool`, `int`, `float` | verbatim |
-| `string` | verbatim up to 500 chars, else first 500 chars + `...` |
+| `string` | verbatim up to 500 bytes, else first 500 bytes + `...` |
 | list array | `list<mixed>` of sanitized values, up to 50 entries |
 | map array | `SanitizedMap`, up to 50 entries |
 | `SensitiveParameterValue` | `"*redacted*"` |
-| other object | `SanitizedObject` (class name + public properties) |
+| other object | `SanitizedObject` (class name + up to 50 public properties) |
 | `Closure` | `"Closure"` |
 | `enum` | `"<FQCN>::<CASE>"` |
 | resource | `"resource(<type>)"` (via `get_resource_type()`) |
@@ -518,8 +551,9 @@ Rules:
 - Public properties come from `get_object_vars()` called in the
   sanitizer's own scope, which returns public properties only and does
   not trigger `__get`. Uninitialized typed properties are absent
-  automatically. `__debugInfo`, `__toString`, and `JsonSerializable` are
-  never invoked.
+  automatically. At most 50 properties are kept, and the rest are
+  summarized with the `*truncated*` marker. `__debugInfo`, `__toString`,
+  and `JsonSerializable` are never invoked.
 - `SensitiveParameterValue` is detected with `instanceof` before any
   other object branch, and `getValue()` is never called. PHP redacts
   sensitive parameters in the trace by substituting this object, so
@@ -528,7 +562,7 @@ Rules:
   exposing `__construct`, `getValue`, `__debugInfo`.
 - Truncation is marked in the payload, because a JSON array cannot carry
   a named marker: a truncated list ends with the string
-  `"... (N more items)"`, and a truncated map gains the entry
+  `"... (N more items)"`, and a truncated map or object gains the entry
   `"*truncated*": "N more items"`. Array keys are stringified the same
   way `json_encode()` would.
 
@@ -590,11 +624,15 @@ Invariants, in priority order:
 
 1. **The middleware never throws.** If `ExceptionHandler::handle()` (or
    anything else in the error path) throws, the middleware builds a
-   minimal production-shaped `Problem` using only `get_class()` and
+   minimal `Problem` using only `get_class()` and
    `getCode()`, and reports the secondary failure with `error_log()`.
 2. **The response body is always JSON.** If `json_encode()` throws a
    `JsonException` (reachable only through pathological recursion), the
-   body falls back to a constant minimal JSON document.
+   body falls back to a constant minimal JSON document
+   (`{"type":"about:blank","title":"Internal Server Error","status":500,"code":0}`).
+   It stays a constant, so it carries no `detail`; RFC 9457 makes that
+   member optional, and inventing a second encoding path inside the
+   failure handler would be worse than omitting it.
 3. **Logging never breaks the response.** A throwing logger is caught
    and reported with `error_log()`; processing continues.
 4. **`ResponseFactoryInterface` alone suffices.** The body is written
@@ -634,7 +672,7 @@ returning `false`.
   test` enforces 100% coverage, so no production line may be unreachable
   in tests.
 - Unit tests per collaborator:
-  - `Environment`: every signal/value combination from the detection
+  - `Mode`: every signal/value combination from the detection
     table, including unrecognized values and `test`. Each row is its own
     test method carrying `#[WithEnvironmentVariable(...)]` — the
     attribute is fixed per method, so a data provider cannot drive it,
@@ -655,9 +693,10 @@ returning `false`.
     project directory name, and an unnormalized Composer path. The
     Composer default is exercised by constructing with no argument.
   - `TraceFactory`: synthetic trace arrays (no dependence on
-    `zend.exception_ignore_args`), reversed ordering, the frame cap and
-    `Trace::$truncated`, frames without a file, args normalized from a
-    missing key to an empty list, and a frame whose file sits outside
+    `zend.exception_ignore_args`), innermost-first ordering, the frame cap and
+    `Trace::$truncated`, frames without a file, args omitted for a
+    missing key and kept as an empty list for a reported empty list, and
+    a frame whose file sits outside
     the project directory — still carrying its `source` window.
   - Document DTOs: each `jsonSerialize()` shape, member ordering and
     omission rules, empty `source` omitted, `traceTruncated` present only
@@ -677,10 +716,10 @@ returning `false`.
 Frame arguments only exist when `zend.exception_ignore_args` is `Off`.
 Verified against php-src: the core default is `Off`, `php.ini-development`
 sets `Off`, and `php.ini-production` sets `On`. So arguments are present
-in exactly the mode that emits traces, and absent in production where
+in exactly the mode that emits traces, and absent in minimal mode where
 traces are omitted anyway. The README must state this dependency, because
-an app shipping `php.ini-production` while running in development mode
-will see empty `args` lists.
+an app shipping `php.ini-production` while running in full mode
+will see frames with no `args` member.
 
 `TraceFactory` must therefore tolerate both shapes; there is no way for
 the library to detect the setting's value that would be worth the

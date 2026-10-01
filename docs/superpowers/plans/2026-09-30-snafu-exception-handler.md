@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with production and development modes.
+**Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with full and minimal modes.
 
 **Architecture:** Ten focused units. Value objects in `Snafu\Document\` own the JSON contract; `Snafu\Trace\` holds the plumbing that reads source windows, sanitizes arguments, and assembles frames; `Snafu\Path\PathRelativizer` turns absolute paths into project-relative ones; `Snafu\ExceptionHandler` maps a `Throwable` to a `Problem`; `Snafu\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
 
-**Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
+**Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-snafu-exception-handler-design.md` — read it alongside this plan; it records why each decision was made.
 
@@ -16,12 +16,12 @@ Copied from the spec; every task implicitly includes them.
 
 - PHP floor is 8.4 (`composer.json` `require.php` is the single source of truth and CI derives the CI version from it). Local dev runs 8.5.11 — never use an 8.5-only API (`array_first`, `|>`, `#[\NoDiscard]`).
 - Every class is `final` (mago `enforce-class-finality`).
-- Docblock `@api` on: `Environment`, `ExceptionHandler`, `ExceptionMiddleware`, `Http\StatusCodeInterface`, and all six `Document\` DTOs. Docblock `@internal` on every other class (mago `require-api-or-internal`).
+- Docblock `@api` on: `Mode`, `ExceptionHandler`, `ExceptionMiddleware`, `Http\StatusCodeInterface`, and all six `Document\` DTOs. Docblock `@internal` on every other class (mago `require-api-or-internal`).
 - Every overriding method carries `#[Override]`.
 - Full type hints on parameters, returns, and closures. Nullable parameters use explicit `?T` (PHP 8.4 deprecates implicit nullable).
 - 100% line coverage is enforced by `composer run test`. No unreachable line may exist in `src/`, because no test can cover it.
 - Test classes carry `#[CoversClass(...)]` (`phpunit.xml` sets `requireCoverageMetadata="true"`); test methods use the `test` prefix (verified: PHPUnit 13.3.6 `Util\Test::isTestMethod` still honours it).
-- Output is JSON only, media type `application/problem+json`, `type` is always `about:blank`, `title` is the short unqualified class name.
+- Output is JSON only, media type `application/problem+json`, `type` is always `about:blank`, `title` is the recommended HTTP status phrase from `codeinc/http-reason-phrase-lookup`'s `HttpReasonPhraseLookup::getReasonPhrase()` (RFC 9457 §4.2.1), and `detail` carries the exception identity.
 - Context window is **always 5 lines** (`line ± 2`, clamped to the file) for the origin and for every frame. Whitespace-only lines are dropped; real line numbers are preserved.
 - **There is no vendor detection.** No vendor flag, no vendor-directory config, no special case for third-party paths.
 - Document types are `JsonSerializable` DTOs. Bare PHP arrays appear only as *lists*, plus the two places PHP forces them: `jsonSerialize(): array` and `Throwable::getTrace()`'s input.
@@ -36,21 +36,21 @@ Failure modes the spec implies but no single task obviously owns. Each has a tes
 
 1. **Invalid UTF-8 in a source file** — a PHP file containing raw non-UTF-8 bytes must still produce a decodable JSON body (the byte is substituted, not fatal). Owning task: 9.
 2. **The handler and the logger both fail at once** — the middleware must still return a 500 JSON body from a code path that cannot itself fail. Owning task: 9.
-3. **A long `previous` chain in development mode** — every link renders a nested document with its own window, with no crash and no arbitrary depth limit. Owning task: 8.
-4. **Frames PHP reports without a file, or without an `args` key** — production `php.ini` sets `zend.exception_ignore_args=On`, which removes `args` entirely; internal-function frames have no file. Neither may break assembly. Owning task: 7.
+3. **A long `previous` chain in full mode** — every link renders a nested document with its own window, with no crash and no arbitrary depth limit. Owning task: 8.
+4. **Frames PHP reports without a file, or without an `args` key** — production `php.ini` sets `zend.exception_ignore_args=On`, which removes `args` entirely, so affected frames carry no `args` member; internal-function frames have no file. Neither may break assembly. Owning task: 7.
 5. **A non-integer exception code** — `PDOException::getCode()` returns a string SQLSTATE (`'HY000'`), and `Exception::getCode()` is `final`, so this is the only realistic source. The cast must yield `0` without erroring. Owning task: 8.
 
 ---
 
-### Task 1: Environment enum
+### Task 1: Mode enum
 
 **Files:**
-- Create: `src/Environment.php`
-- Test: `tests/EnvironmentTest.php`
+- Create: `src/Mode.php`
+- Test: `tests/ModeTest.php`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Snafu\Environment` — `enum Environment: string` with cases `Production = 'production'` and `Development = 'development'`, and `public static function fromEnv(): self`.
+- Produces: `Snafu\Mode` — `enum Mode: string` with cases `Full = 'full'` and `Minimal = 'minimal'`, and `public static function fromEnv(): self`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -62,87 +62,87 @@ namespace Snafu\Tests;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\WithEnvironmentVariable;
 use PHPUnit\Framework\TestCase;
-use Snafu\Environment;
+use Snafu\Mode;
 
-#[CoversClass(Environment::class)]
-final class EnvironmentTest extends TestCase
+#[CoversClass(Mode::class)]
+final class ModeTest extends TestCase
 {
     #[WithEnvironmentVariable('APP_ENV', null)]
     #[WithEnvironmentVariable('APP_DEBUG', null)]
-    public function testNothingSetIsProduction(): void
+    public function testNothingSetIsMinimal(): void
     {
-        $this->assertSame(Environment::Production, Environment::fromEnv());
+        $this->assertSame(Mode::Minimal, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'dev')]
     #[WithEnvironmentVariable('APP_DEBUG', null)]
-    public function testAppEnvDevIsDevelopment(): void
+    public function testAppEnvDevIsFull(): void
     {
-        $this->assertSame(Environment::Development, Environment::fromEnv());
+        $this->assertSame(Mode::Full, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'LOCAL')]
     #[WithEnvironmentVariable('APP_DEBUG', null)]
     public function testAppEnvIsCaseSensitive(): void
     {
-        $this->assertSame(Environment::Production, Environment::fromEnv());
+        $this->assertSame(Mode::Minimal, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'test')]
     #[WithEnvironmentVariable('APP_DEBUG', null)]
-    public function testAppEnvTestIsProduction(): void
+    public function testAppEnvTestIsMinimal(): void
     {
-        $this->assertSame(Environment::Production, Environment::fromEnv());
+        $this->assertSame(Mode::Minimal, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'production')]
     #[WithEnvironmentVariable('APP_DEBUG', '1')]
-    public function testAppDebugOneIsDevelopment(): void
+    public function testAppDebugOneIsFull(): void
     {
-        $this->assertSame(Environment::Development, Environment::fromEnv());
+        $this->assertSame(Mode::Full, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'production')]
     #[WithEnvironmentVariable('APP_DEBUG', 'TRUE')]
     public function testAppDebugIsCaseInsensitive(): void
     {
-        $this->assertSame(Environment::Development, Environment::fromEnv());
+        $this->assertSame(Mode::Full, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'development')]
     #[WithEnvironmentVariable('APP_DEBUG', null)]
-    public function testAppEnvDevelopmentIsDevelopment(): void
+    public function testAppEnvDevelopmentIsFull(): void
     {
-        $this->assertSame(Environment::Development, Environment::fromEnv());
+        $this->assertSame(Mode::Full, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', '')]
     #[WithEnvironmentVariable('APP_DEBUG', 'on')]
     public function testEmptyAppEnvFallsThroughToAppDebug(): void
     {
-        $this->assertSame(Environment::Development, Environment::fromEnv());
+        $this->assertSame(Mode::Full, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'production')]
     #[WithEnvironmentVariable('APP_DEBUG', '0')]
-    public function testFalsyAppDebugIsProduction(): void
+    public function testFalsyAppDebugIsMinimal(): void
     {
-        $this->assertSame(Environment::Production, Environment::fromEnv());
+        $this->assertSame(Mode::Minimal, Mode::fromEnv());
     }
 
     #[WithEnvironmentVariable('APP_ENV', 'production')]
     #[WithEnvironmentVariable('APP_DEBUG', 'nonsense')]
-    public function testUnrecognisedAppDebugIsProduction(): void
+    public function testUnrecognisedAppDebugIsMinimal(): void
     {
-        $this->assertSame(Environment::Production, Environment::fromEnv());
+        $this->assertSame(Mode::Minimal, Mode::fromEnv());
     }
 }
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `vendor/bin/phpunit tests/EnvironmentTest.php`
-Expected: FAIL — `Class "Snafu\Environment" not found`.
+Run: `vendor/bin/phpunit tests/ModeTest.php`
+Expected: FAIL — `Class "Snafu\Mode" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -156,16 +156,16 @@ namespace Snafu;
  *
  * @api
  */
-enum Environment: string
+enum Mode: string
 {
-    case Production = 'production';
-    case Development = 'development';
+    case Full = 'full';
+    case Minimal = 'minimal';
 
     /**
      * Detects the mode from the process environment.
      *
      * Reads `APP_ENV`, then `APP_DEBUG`. Unrecognised or absent values
-     * fall back to Production, because a mode that leaks internals must
+     * fall back to Minimal, because a mode that leaks internals must
      * never be selected by accident.
      */
     public static function fromEnv(): self
@@ -173,26 +173,26 @@ enum Environment: string
         $appEnv = getenv('APP_ENV');
 
         if ($appEnv === 'dev' || $appEnv === 'development' || $appEnv === 'local') {
-            return self::Development;
+            return self::Full;
         }
 
         return filter_var(getenv('APP_DEBUG'), FILTER_VALIDATE_BOOLEAN)
-            ? self::Development
-            : self::Production;
+            ? self::Full
+            : self::Minimal;
     }
 }
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `vendor/bin/phpunit tests/EnvironmentTest.php`
+Run: `vendor/bin/phpunit tests/ModeTest.php`
 Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 composer run fix
-git add src/Environment.php tests/EnvironmentTest.php
+git add src/Mode.php tests/ModeTest.php
 git commit -m "feat: detect the document mode from the environment"
 ```
 
@@ -502,7 +502,7 @@ git commit -m "feat: read the five-line source window around a line"
   - `Snafu\Document\SanitizedObject` — `__construct(public string $class, public array $properties)`, serializes to `['@class' => string, 'props' => array]`.
   - `Snafu\Document\SanitizedMap` — `__construct(public array $entries)`, serializes to its entries (a JSON object).
   - `Snafu\Trace\ArgumentSanitizer` — `sanitize(mixed $value): mixed`, total (never throws), limits depth 5 / 50 items / 500 bytes.
-  - `sanitize()` returns: scalars verbatim; strings truncated with `...`; lists as `list<mixed>`; maps as `SanitizedMap`; plain objects as `SanitizedObject`; `Closure` as `'Closure'`; enums as `'FQCN::CASE'`; resources as `'resource(type)'`; `SensitiveParameterValue` as `'*redacted*'`; anything past depth 5 as `'*depth limit*'`; a closed resource as `'resource(closed)'`.
+  - `sanitize()` returns: scalars verbatim; strings truncated with `...`; lists as `list<mixed>`; maps as `SanitizedMap`; plain objects as `SanitizedObject` with at most 50 public properties and a `*truncated*` marker for the remainder; `Closure` as `'Closure'`; enums as `'FQCN::CASE'`; resources as `'resource(type)'`; `SensitiveParameterValue` as `'*redacted*'`; anything past depth 5 as `'*depth limit*'`; a closed resource as `'resource(closed)'`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -840,7 +840,9 @@ final readonly class SanitizedMap implements JsonSerializable
 `src/Trace/ArgumentSanitizer.php`:
 
 ```php
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Snafu\Trace;
 
@@ -851,13 +853,32 @@ use Snafu\Document\SanitizedObject;
 use SplObjectStorage;
 use UnitEnum;
 
+use function array_is_list;
+use function array_slice;
+use function count;
+use function get_object_vars;
+use function get_resource_type;
+use function is_array;
+use function is_bool;
+use function is_finite;
+use function is_float;
+use function is_int;
+use function is_nan;
+use function is_object;
+use function is_resource;
+use function is_string;
+use function sprintf;
+use function strlen;
+use function substr;
+
 /**
  * Converts an arbitrary argument value into something JSON-encodable.
  *
  * This is a total function: it must not throw, must not invoke user code
  * (`__toString`, `__debugInfo`, `JsonSerializable`), and must not loop
  * forever. It runs while an exception is being reported, so failing here
- * would destroy the report.
+ * would destroy the report. It must not produce a value `json_encode()`
+ * refuses.
  *
  * @internal
  */
@@ -893,7 +914,8 @@ final class ArgumentSanitizer
     {
         return match (true) {
             $depth >= self::MAX_DEPTH => '*depth limit*',
-            $value === null, is_bool($value), is_int($value), is_float($value) => $value,
+            $value === null, is_bool($value), is_int($value) => $value,
+            is_float($value) => self::float($value),
             is_string($value) => $this->sanitizeString($value),
             is_array($value) => $this->sanitizeArray($value, $depth),
             $value instanceof SensitiveParameterValue => '*redacted*',
@@ -905,13 +927,31 @@ final class ArgumentSanitizer
         };
     }
 
+    /**
+     * `json_encode()` refuses INF and NAN, and a document that cannot be
+     * encoded is a document that cannot be reported, so non-finite
+     * floats become their names.
+     */
+    private static function float(float $value): float|string
+    {
+        if (is_finite($value)) {
+            return $value;
+        }
+
+        if (is_nan($value)) {
+            return 'NAN';
+        }
+
+        return $value > 0.0 ? 'INF' : '-INF';
+    }
+
     private function sanitizeString(string $value): string
     {
         if (strlen($value) <= self::MAX_STRING_LENGTH) {
             return $value;
         }
 
-        return substr($value, 0, self::MAX_STRING_LENGTH) . '...';
+        return substr(string: $value, offset: 0, length: self::MAX_STRING_LENGTH) . '...';
     }
 
     /**
@@ -924,35 +964,48 @@ final class ArgumentSanitizer
     private function sanitizeArray(array $value, int $depth): array|SanitizedMap
     {
         $total = count($value);
-        $truncated = $total > self::MAX_ITEMS;
-        $slice = array_slice($value, 0, self::MAX_ITEMS, true);
-        $remaining = $total - self::MAX_ITEMS;
+        $slice = array_slice(array: $value, offset: 0, length: self::MAX_ITEMS, preserve_keys: true);
 
         if (array_is_list($value)) {
             $items = [];
 
+            /** @var mixed $item */
             foreach ($slice as $item) {
                 $items[] = $this->sanitizeValue($item, $depth + 1);
             }
 
-            if ($truncated) {
-                $items[] = sprintf('... (%d more items)', $remaining);
+            if ($total > self::MAX_ITEMS) {
+                $items[] = sprintf('... (%d more items)', $total - self::MAX_ITEMS);
             }
 
             return $items;
         }
 
+        return new SanitizedMap($this->sanitizeEntries($slice, $depth, $total));
+    }
+
+    /**
+     * Sanitizes a capped slice of entries, appending the truncation marker
+     * when the source held more items than the cap.
+     *
+     * @param array<array-key, mixed> $slice
+     *
+     * @return array<string, mixed>
+     */
+    private function sanitizeEntries(array $slice, int $depth, int $total): array
+    {
         $entries = [];
 
+        /** @var mixed $item */
         foreach ($slice as $key => $item) {
             $entries[(string) $key] = $this->sanitizeValue($item, $depth + 1);
         }
 
-        if ($truncated) {
-            $entries['*truncated*'] = sprintf('%d more items', $remaining);
+        if ($total > self::MAX_ITEMS) {
+            $entries['*truncated*'] = sprintf('%d more items', $total - self::MAX_ITEMS);
         }
 
-        return new SanitizedMap($entries);
+        return $entries;
     }
 
     private function sanitizeObject(object $value, int $depth): SanitizedObject
@@ -964,14 +1017,11 @@ final class ArgumentSanitizer
         $this->processing->offsetSet($value, null);
 
         try {
-            /** @var array<string, mixed> $properties */
-            $properties = [];
+            /** @var array<string, mixed> $all */
+            $all = get_object_vars($value);
+            $slice = array_slice(array: $all, offset: 0, length: self::MAX_ITEMS, preserve_keys: true);
 
-            foreach (get_object_vars($value) as $name => $property) {
-                $properties[(string) $name] = $this->sanitizeValue($property, $depth + 1);
-            }
-
-            return new SanitizedObject($value::class, $properties);
+            return new SanitizedObject($value::class, $this->sanitizeEntries($slice, $depth, count($all)));
         } finally {
             $this->processing->offsetUnset($value);
         }
@@ -1220,7 +1270,7 @@ git commit -m "feat: relativize exception paths against the project directory"
 **Interfaces:**
 - Consumes: `Snafu\Document\SourceLine` (Task 2).
 - Produces:
-  - `Snafu\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, array $args = [], array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is always present.
+  - `Snafu\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, ?array $args = null, array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is emitted only when PHP reported arguments for the frame, so `args: []` is a reported empty list and an absent member means PHP did not report arguments.
   - `Snafu\Document\Trace` — `__construct(public array $frames, public bool $truncated)`, `jsonSerialize(): list<Frame>` returning the frames.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1232,6 +1282,7 @@ git commit -m "feat: relativize exception paths against the project directory"
 
 namespace Snafu\Tests\Document;
 
+use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Snafu\Document\Frame;
@@ -1240,9 +1291,9 @@ use Snafu\Document\SourceLine;
 #[CoversClass(Frame::class)]
 final class FrameTest extends TestCase
 {
-    public function testItIsEmptyButForArgsWhenNothingIsKnown(): void
+    public function testItIsEmptyWhenNothingIsKnown(): void
     {
-        $this->assertSame(['args' => []], (new Frame())->jsonSerialize());
+        $this->assertSame([], new Frame()->jsonSerialize());
     }
 
     public function testItOmitsNullMembersAndEmptySource(): void
@@ -1270,11 +1321,29 @@ final class FrameTest extends TestCase
             [
                 'file' => 'src/Foo.php',
                 'line' => 12,
-                'args' => [],
                 'source' => [['line' => 12, 'code' => '    $x = 1;']],
             ],
-            $frame->jsonSerialize(),
+            self::json($frame),
         );
+    }
+
+    public function testItEmitsAnEmptyArgumentListThatPhpReported(): void
+    {
+        $this->assertSame(['args' => []], new Frame(args: [])->jsonSerialize());
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private static function json(Frame $frame): array
+    {
+        $decoded = json_decode(json_encode($frame, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded)) {
+            throw new LogicException('The frame did not serialize to a JSON object.');
+        }
+
+        return $decoded;
     }
 }
 ```
@@ -1286,6 +1355,7 @@ final class FrameTest extends TestCase
 
 namespace Snafu\Tests\Document;
 
+use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Snafu\Document\Frame;
@@ -1298,8 +1368,22 @@ final class TraceTest extends TestCase
     {
         $trace = new Trace([new Frame(function: 'run')], true);
 
-        $this->assertSame([['function' => 'run', 'args' => []]], $trace->jsonSerialize());
+        $this->assertSame([['function' => 'run']], self::json($trace));
         $this->assertTrue($trace->truncated);
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private static function json(Trace $trace): array
+    {
+        $decoded = json_decode(json_encode($trace, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded)) {
+            throw new LogicException('The trace did not serialize to a JSON array.');
+        }
+
+        return $decoded;
     }
 }
 ```
@@ -1329,7 +1413,7 @@ use Override;
 final readonly class Frame implements JsonSerializable
 {
     /**
-     * @param list<mixed>      $args
+     * @param list<mixed>|null $args
      * @param list<SourceLine> $source
      */
     public function __construct(
@@ -1338,7 +1422,7 @@ final readonly class Frame implements JsonSerializable
         public ?string $function = null,
         public ?string $class = null,
         public ?string $type = null,
-        public array $args = [],
+        public ?array $args = null,
         public array $source = [],
     ) {}
 
@@ -1370,7 +1454,9 @@ final readonly class Frame implements JsonSerializable
             $frame['type'] = $this->type;
         }
 
-        $frame['args'] = $this->args;
+        if ($this->args !== null) {
+            $frame['args'] = $this->args;
+        }
 
         if ($this->source !== []) {
             $frame['source'] = $this->source;
@@ -1423,7 +1509,7 @@ final readonly class Trace implements JsonSerializable
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `vendor/bin/phpunit tests/Document/FrameTest.php tests/Document/TraceTest.php`
-Expected: PASS, 4 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1445,8 +1531,8 @@ git commit -m "feat: add frame and trace document types"
 - Consumes: `Snafu\Document\SourceLine` (Task 2), `Snafu\Document\Trace` (Task 5).
 - Produces: `Snafu\Document\Problem` —
   - `__construct(string $type, string $title, int $status, int $code, ?string $detail = null, ?string $file = null, ?int $line = null, array $source = [], ?Trace $trace = null, ?Problem $previous = null)`
-  - `public static function minimal(Throwable $exception, int $status): self` — production shape.
-  - `public static function development(Throwable $exception, int $status, string $file, int $line, array $source, Trace $trace, ?Problem $previous): self` — development shape.
+  - `public static function minimal(Throwable $exception, int $status): self` — the status phrase, the short class name as `detail`, and the code.
+  - `public static function development(Throwable $exception, int $status, string $file, int $line, array $source, Trace $trace, ?Problem $previous): self` — `minimal()` plus `detail` as `class: message`, origin, source window, trace, and cause.
   - `jsonSerialize(): array` emitting `type, title, status, code, detail, file, line, source, trace, traceTruncated, previous`, omitting null/false members and empty `source`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1457,6 +1543,8 @@ git commit -m "feat: add frame and trace document types"
 namespace Snafu\Tests\Document;
 
 use Exception;
+use LogicException;
+use PDO;
 use PDOException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -1465,22 +1553,54 @@ use Snafu\Document\Problem;
 use Snafu\Document\SourceLine;
 use Snafu\Document\Trace;
 
+use function is_array;
+use function json_decode;
+use function json_encode;
+
+use const JSON_THROW_ON_ERROR;
+
 #[CoversClass(Problem::class)]
 final class ProblemTest extends TestCase
 {
-    public function testMinimalCarriesTheShortClassNameAndCodeOnly(): void
+    public function testMinimalCarriesTheStatusPhraseTheClassAndTheCode(): void
     {
         $problem = Problem::minimal(new RuntimeException('secret detail', 7), 500);
 
         $this->assertSame(
-            ['type' => 'about:blank', 'title' => 'RuntimeException', 'status' => 500, 'code' => 7],
+            [
+                'type' => 'about:blank',
+                'title' => 'Internal Server Error',
+                'status' => 500,
+                'code' => 7,
+                'detail' => 'RuntimeException',
+            ],
             $problem->jsonSerialize(),
         );
     }
 
     public function testTheShortNameOfAGlobalClassIsItsName(): void
     {
-        $this->assertSame('Exception', Problem::minimal(new Exception('x'), 500)->title);
+        $this->assertSame('Exception', Problem::minimal(new Exception('x'), 500)->detail);
+    }
+
+    public function testMinimalNeverLeaksTheOriginPathOfAnAnonymousClass(): void
+    {
+        $problem = Problem::minimal(new class extends RuntimeException {}, 500);
+        $json = json_encode($problem, JSON_THROW_ON_ERROR);
+
+        $this->assertSame('RuntimeException@anonymous', $problem->detail);
+        $this->assertStringNotContainsString('\u0000', $json);
+        $this->assertStringNotContainsString(__FILE__, $json);
+    }
+
+    public function testAMappedStatusCarriesTheRecommendedPhrase(): void
+    {
+        $this->assertSame('Not Found', Problem::minimal(new RuntimeException('x'), 404)->title);
+    }
+
+    public function testAnUnmappedStatusFallsBackToTheCode(): void
+    {
+        $this->assertSame('599', Problem::minimal(new RuntimeException('x'), 599)->title);
     }
 
     public function testANonIntegerCodeIsCast(): void
@@ -1508,17 +1628,23 @@ final class ProblemTest extends TestCase
         $this->assertSame(
             [
                 'type' => 'about:blank',
-                'title' => 'RuntimeException',
+                'title' => 'Unprocessable Content',
                 'status' => 422,
                 'code' => 3,
-                'detail' => 'boom',
+                'detail' => 'RuntimeException: boom',
                 'file' => 'src/Foo.php',
                 'line' => 12,
                 'source' => [['line' => 12, 'code' => '    throw new RuntimeException();']],
                 'trace' => [],
-                'previous' => ['type' => 'about:blank', 'title' => 'RuntimeException', 'status' => 500, 'code' => 0],
+                'previous' => [
+                    'type' => 'about:blank',
+                    'title' => 'Internal Server Error',
+                    'status' => 500,
+                    'code' => 0,
+                    'detail' => 'RuntimeException',
+                ],
             ],
-            $problem->jsonSerialize(),
+            self::json($problem),
         );
     }
 
@@ -1553,17 +1679,57 @@ final class ProblemTest extends TestCase
             previous: null,
         );
 
-        $this->assertTrue($problem->jsonSerialize()['traceTruncated']);
+        $this->assertTrue($problem->jsonSerialize()['traceTruncated'] ?? false);
     }
 
     public function testItCanBeConstructedDirectly(): void
     {
-        $problem = new Problem(type: 'about:blank', title: 'RuntimeException', status: 503, code: 0, detail: 'd', file: 'f', line: 2);
+        $problem = new Problem(
+            type: 'about:blank',
+            title: 'Service Unavailable',
+            status: 503,
+            code: 0,
+            detail: 'RuntimeException',
+            file: 'f',
+            line: 2,
+        );
 
         $this->assertSame(
-            ['type' => 'about:blank', 'title' => 'RuntimeException', 'status' => 503, 'code' => 0, 'detail' => 'd', 'file' => 'f', 'line' => 2],
+            [
+                'type' => 'about:blank',
+                'title' => 'Service Unavailable',
+                'status' => 503,
+                'code' => 0,
+                'detail' => 'RuntimeException',
+                'file' => 'f',
+                'line' => 2,
+            ],
             $problem->jsonSerialize(),
         );
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private static function json(Problem $problem): array
+    {
+        return self::decoded(json_decode(
+            json: json_encode($problem, JSON_THROW_ON_ERROR),
+            associative: true,
+            flags: JSON_THROW_ON_ERROR,
+        ));
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private static function decoded(mixed $value): array
+    {
+        if (!is_array($value)) {
+            throw new LogicException('The problem did not serialize to a JSON object.');
+        }
+
+        return $value;
     }
 
     /**
@@ -1573,7 +1739,7 @@ final class ProblemTest extends TestCase
      */
     private function sqlStateCode(): string|int
     {
-        $pdo = new \PDO('sqlite::memory:');
+        $pdo = new PDO('sqlite::memory:');
 
         try {
             $pdo->query('select * from snafu_missing_table');
@@ -1598,9 +1764,14 @@ Expected: FAIL — `Class "Snafu\Document\Problem" not found`.
 
 namespace Snafu\Document;
 
+use CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup;
 use JsonSerializable;
 use Override;
 use Throwable;
+
+use function strpos;
+use function strrpos;
+use function substr;
 
 /**
  * An RFC 9457 problem document.
@@ -1614,9 +1785,7 @@ final readonly class Problem implements JsonSerializable
      */
     private const string TYPE = 'about:blank';
 
-    /**
-     * @param list<SourceLine> $source
-     */
+    // @mago-ignore lint:excessive-parameter-list
     public function __construct(
         public string $type,
         public string $title,
@@ -1625,29 +1794,35 @@ final readonly class Problem implements JsonSerializable
         public ?string $detail = null,
         public ?string $file = null,
         public ?int $line = null,
+        /** @var list<SourceLine> */
         public array $source = [],
         public ?Trace $trace = null,
         public ?Problem $previous = null,
     ) {}
 
     /**
-     * The production document: short class name and code, nothing else.
+     * The minimal document: the status phrase, the short class name as
+     * `detail`, and the code, nothing else.
      */
     public static function minimal(Throwable $exception, int $status): self
     {
         return new self(
             type: self::TYPE,
-            title: self::title($exception),
+            title: self::title($status),
             status: $status,
             code: (int) $exception->getCode(),
+            detail: self::shortClass($exception),
         );
     }
 
     /**
-     * The development document: everything `minimal()` carries, plus the
-     * message, origin, source window, trace, and cause.
+     * The full document: everything `minimal()` carries, plus `detail`
+     * as `class: message`, the origin, the source window, the trace,
+     * and the cause.
      *
      * @param list<SourceLine> $source
+     *
+     * @mago-ignore lint:excessive-parameter-list
      */
     public static function development(
         Throwable $exception,
@@ -1660,10 +1835,10 @@ final readonly class Problem implements JsonSerializable
     ): self {
         return new self(
             type: self::TYPE,
-            title: self::title($exception),
+            title: self::title($status),
             status: $status,
             code: (int) $exception->getCode(),
-            detail: $exception->getMessage(),
+            detail: self::detail($exception),
             file: $file,
             line: $line,
             source: $source,
@@ -1717,13 +1892,38 @@ final readonly class Problem implements JsonSerializable
     }
 
     /**
-     * The unqualified class name, which is the document title in both
-     * modes.
+     * The reason phrase for `$status`, from
+     * `codeinc/http-reason-phrase-lookup`. A status with no registered
+     * phrase falls back to the code itself, so the title is never empty.
      */
-    private static function title(Throwable $exception): string
+    private static function title(int $status): string
+    {
+        return HttpReasonPhraseLookup::getReasonPhrase($status) ?? (string) $status;
+    }
+
+    /**
+     * The dev-mode exception identity: the short class name, then the
+     * message, always both.
+     */
+    private static function detail(Throwable $exception): string
+    {
+        return self::shortClass($exception) . ': ' . $exception->getMessage();
+    }
+
+    /**
+     * The unqualified class name, truncated at the NUL byte that an
+     * anonymous class carries before its origin path.
+     */
+    private static function shortClass(Throwable $exception): string
     {
         $class = $exception::class;
-        $position = strrpos($class, '\\');
+        $nul = strpos(haystack: $class, needle: "\0");
+
+        if ($nul !== false) {
+            $class = substr(string: $class, offset: 0, length: $nul);
+        }
+
+        $position = strrpos(haystack: $class, needle: '\\');
 
         return $position === false ? $class : substr($class, $position + 1);
     }
@@ -1733,7 +1933,7 @@ final readonly class Problem implements JsonSerializable
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `vendor/bin/phpunit tests/Document/ProblemTest.php`
-Expected: PASS, 7 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1753,7 +1953,7 @@ git commit -m "feat: add the problem document type with both modes"
 
 **Interfaces:**
 - Consumes: `Snafu\Path\PathRelativizer` (Task 4), `Snafu\Trace\SourceContext` (Task 2), `Snafu\Trace\ArgumentSanitizer` (Task 3), `Snafu\Document\Frame` and `Snafu\Document\Trace` (Task 5).
-- Produces: `Snafu\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentSanitizer $arguments, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array (innermost last), reversed to innermost first, capped at `$traceLimit` keeping the innermost frames.
+- Produces: `Snafu\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentSanitizer $arguments, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array, which already lists the frame nearest the throw first, so the first `$traceLimit` entries — the innermost frames — are kept. An entry without an `args` key (or with a non-array one) yields a frame with no `args` member; an empty `args` array is kept as `args: []`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1762,10 +1962,10 @@ git commit -m "feat: add the problem document type with both modes"
 
 namespace Snafu\Tests\Trace;
 
+use LogicException;
+use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Frame;
-use Snafu\Document\SanitizedObject;
 use Snafu\Document\Trace;
 use Snafu\Path\PathRelativizer;
 use Snafu\Trace\ArgumentSanitizer;
@@ -1782,6 +1982,7 @@ final class TraceFactoryTest extends TestCase
 
     private TraceFactory $factory;
 
+    #[Override]
     protected function setUp(): void
     {
         $this->root = dirname(__DIR__, 2);
@@ -1793,11 +1994,11 @@ final class TraceFactoryTest extends TestCase
         );
     }
 
-    public function testItReversesFramesSoTheInnermostComesFirst(): void
+    public function testItKeepsTheInnermostFrameFirst(): void
     {
         $trace = $this->factory->frames([
-            ['file' => $this->root . '/src/Outer.php', 'line' => 3, 'function' => 'outer'],
             ['file' => $this->root . self::ROOT_FIXTURE, 'line' => 5, 'function' => 'inner'],
+            ['file' => $this->root . '/src/Outer.php', 'line' => 3, 'function' => 'outer'],
         ]);
 
         $this->assertFalse($trace->truncated);
@@ -1807,7 +2008,6 @@ final class TraceFactoryTest extends TestCase
                     'file' => 'tests/Fixtures/source/window.php',
                     'line' => 5,
                     'function' => 'inner',
-                    'args' => [],
                     'source' => [
                         ['line' => 3, 'code' => 'function snafu_fixture_alpha(): void'],
                         ['line' => 4, 'code' => '{'],
@@ -1819,7 +2019,6 @@ final class TraceFactoryTest extends TestCase
                     'file' => 'src/Outer.php',
                     'line' => 3,
                     'function' => 'outer',
-                    'args' => [],
                 ],
             ],
             $this->serialize($trace),
@@ -1829,7 +2028,14 @@ final class TraceFactoryTest extends TestCase
     public function testItCarriesClassTypeAndArguments(): void
     {
         $trace = $this->factory->frames([
-            ['file' => null, 'line' => null, 'function' => 'run', 'class' => 'App\Thing', 'type' => '->', 'args' => ['plain', new stdClass()]],
+            [
+                'file' => null,
+                'line' => null,
+                'function' => 'run',
+                'class' => 'App\Thing',
+                'type' => '->',
+                'args' => ['plain', new stdClass()],
+            ],
         ]);
 
         $this->assertSame(
@@ -1852,29 +2058,36 @@ final class TraceFactoryTest extends TestCase
         $this->assertSame([['function' => 'strlen', 'args' => []]], $this->serialize($trace));
     }
 
-    public function testItTreatsAnAbsentArgsKeyAsAnEmptyList(): void
+    public function testItOmitsArgsWhenTheTraceHasNoArgsKey(): void
     {
         $trace = $this->factory->frames([['function' => 'strlen']]);
 
-        $this->assertSame([['function' => 'strlen', 'args' => []]], $this->serialize($trace));
+        $this->assertSame([['function' => 'strlen']], $this->serialize($trace));
     }
 
     public function testItIgnoresEntriesOfTheWrongType(): void
     {
-        $trace = $this->factory->frames([['file' => 42, 'line' => 'twelve', 'function' => ['nope'], 'args' => 'not-an-array']]);
+        $trace = $this->factory->frames([[
+            'file' => 42,
+            'line' => 'twelve',
+            'function' => ['nope'],
+            'args' => 'not-an-array',
+        ]]);
 
-        $this->assertSame([['args' => []]], $this->serialize($trace));
+        $this->assertSame([[]], $this->serialize($trace));
     }
 
     public function testItKeepsTheInnermostFramesWhenTheLimitIsReached(): void
     {
         $trace = $this->factory->frames($this->manyFrames(40));
-        $functions = array_column($this->serialize($trace), 'function');
+        /** @var list<array<string, mixed>> $frames */
+        $frames = $this->serialize($trace);
+        $functions = array_column($frames, 'function');
 
         $this->assertTrue($trace->truncated);
         $this->assertCount(30, $trace->frames);
-        $this->assertSame(['frame-10'], array_slice($functions, 0, 1));
-        $this->assertSame(['frame-39'], array_slice($functions, -1));
+        $this->assertSame(['frame-0'], array_slice($functions, 0, 1));
+        $this->assertSame(['frame-29'], array_slice($functions, -1));
     }
 
     public function testItDoesNotFlagATraceAtExactlyTheLimit(): void
@@ -1887,20 +2100,30 @@ final class TraceFactoryTest extends TestCase
 
     public function testItSkipsTheSourceWindowWhenTheLineIsOutOfRange(): void
     {
-        $trace = $this->factory->frames([['file' => $this->root . self::ROOT_FIXTURE, 'line' => 900, 'function' => 'inner']]);
+        $trace = $this->factory->frames([[
+            'file' => $this->root . self::ROOT_FIXTURE,
+            'line' => 900,
+            'function' => 'inner',
+        ]]);
 
         $this->assertSame(
-            [['file' => 'tests/Fixtures/source/window.php', 'line' => 900, 'function' => 'inner', 'args' => []]],
+            [['file' => 'tests/Fixtures/source/window.php', 'line' => 900, 'function' => 'inner']],
             $this->serialize($trace),
         );
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * @return array<array-key, mixed>
      */
     private function serialize(Trace $trace): array
     {
-        return array_map(static fn (Frame $frame): array => $frame->jsonSerialize(), $trace->frames);
+        $decoded = json_decode(json_encode($trace, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded)) {
+            throw new LogicException('The trace did not serialize to a JSON array.');
+        }
+
+        return $decoded;
     }
 
     /**
@@ -1950,21 +2173,19 @@ final class TraceFactory
     ) {}
 
     /**
-     * `Throwable::getTrace()` lists the outermost caller first; the
-     * frames are reversed so the frame nearest the throw comes first,
-     * and the innermost `$traceLimit` frames are kept when the list is
-     * longer than that.
+     * `Throwable::getTrace()` already lists the frame nearest the throw
+     * first, so the first `$traceLimit` entries — the innermost frames —
+     * are kept when the list is longer than that.
      *
      * @param list<array<string, mixed>> $trace
      */
     public function frames(array $trace): Trace
     {
-        $reversed = array_reverse($trace);
-        $truncated = count($reversed) > $this->traceLimit;
+        $truncated = count($trace) > $this->traceLimit;
 
         $frames = [];
 
-        foreach (array_slice($reversed, 0, $this->traceLimit) as $entry) {
+        foreach (array_slice($trace, 0, $this->traceLimit) as $entry) {
             $frames[] = $this->frame($entry);
         }
 
@@ -1992,17 +2213,18 @@ final class TraceFactory
 
     /**
      * PHP omits the `args` key entirely when
-     * `zend.exception_ignore_args=On`, so a missing or malformed key
-     * normalizes to an empty list.
+     * `zend.exception_ignore_args=On`, so an absent or malformed key
+     * normalizes to `null` and `Frame` omits the member; a frame PHP
+     * reports with an empty argument list still carries `args: []`.
      *
      * @param array<string, mixed> $entry
      *
-     * @return list<mixed>
+     * @return list<mixed>|null
      */
-    private function args(array $entry): array
+    private function args(array $entry): ?array
     {
         if (!array_key_exists('args', $entry) || !is_array($entry['args'])) {
-            return [];
+            return null;
         }
 
         $args = [];
@@ -2064,10 +2286,10 @@ git commit -m "feat: assemble trace frames with source windows and arguments"
 - Test: `tests/ExceptionHandlerTest.php`
 
 **Interfaces:**
-- Consumes: `Snafu\Environment` (Task 1), `Snafu\Document\Problem` (Task 6), `Snafu\Path\PathRelativizer` (Task 4), `Snafu\Trace\SourceContext` (Task 2), `Snafu\Trace\ArgumentSanitizer` (Task 3), `Snafu\Trace\TraceFactory` (Task 7).
+- Consumes: `Snafu\Mode` (Task 1), `Snafu\Document\Problem` (Task 6), `Snafu\Path\PathRelativizer` (Task 4), `Snafu\Trace\SourceContext` (Task 2), `Snafu\Trace\ArgumentSanitizer` (Task 3), `Snafu\Trace\TraceFactory` (Task 7).
 - Produces:
   - `Snafu\Http\StatusCodeInterface` — `getStatusCode(): int`.
-  - `Snafu\ExceptionHandler` — `__construct(Environment $environment, ?string $projectDir = null, int $traceLimit = 30)`, `handle(Throwable $exception): Problem`.
+  - `Snafu\ExceptionHandler` — `__construct(Mode $mode, ?string $projectDir = null, int $traceLimit = 30)`, `handle(Throwable $exception): Problem`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2082,7 +2304,7 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Snafu\Document\Problem;
 use Snafu\Document\Trace;
-use Snafu\Environment;
+use Snafu\Mode;
 use Snafu\ExceptionHandler;
 use Snafu\Http\StatusCodeInterface;
 use Throwable;
@@ -2097,30 +2319,36 @@ final class ExceptionHandlerTest extends TestCase
         $this->root = dirname(__DIR__);
     }
 
-    public function testProductionGivesTheShortClassNameAndCodeOnly(): void
+    public function testMinimalGivesTheStatusPhraseTheShortClassNameAndTheCode(): void
     {
-        $problem = $this->handler(Environment::Production)->handle(new RuntimeException('secret detail', 7));
+        $problem = $this->handler(Mode::Minimal)->handle(new RuntimeException('secret detail', 7));
 
         $this->assertSame(
-            ['type' => 'about:blank', 'title' => 'RuntimeException', 'status' => 500, 'code' => 7],
+            [
+                'type' => 'about:blank',
+                'title' => 'Internal Server Error',
+                'status' => 500,
+                'code' => 7,
+                'detail' => 'RuntimeException',
+            ],
             $problem->jsonSerialize(),
         );
     }
 
-    public function testProductionNeverLeaksTheMessageOrLocation(): void
+    public function testMinimalNeverLeaksTheMessageOrLocation(): void
     {
-        $json = json_encode($this->handler(Environment::Production)->handle(new RuntimeException('secret detail')));
+        $json = json_encode($this->handler(Mode::Minimal)->handle(new RuntimeException('secret detail')));
 
         $this->assertIsString($json);
         $this->assertStringNotContainsString('secret detail', $json);
         $this->assertStringNotContainsString('ExceptionHandlerTest', $json);
     }
 
-    public function testDevelopmentCarriesTheMessageLocationAndWindow(): void
+    public function testFullCarriesTheMessageLocationAndWindow(): void
     {
-        $problem = $this->handler(Environment::Development)->handle(new RuntimeException('boom'));
+        $problem = $this->handler(Mode::Full)->handle(new RuntimeException('boom'));
 
-        $this->assertSame('boom', $problem->detail);
+        $this->assertSame('RuntimeException: boom', $problem->detail);
         $this->assertSame('tests/ExceptionHandlerTest.php', $problem->file);
         $this->assertIsInt($problem->line);
         $this->assertNotSame([], $problem->source);
@@ -2131,32 +2359,32 @@ final class ExceptionHandlerTest extends TestCase
 
     public function testItUsesTheStatusCodeInterfaceWhenInRange(): void
     {
-        $problem = $this->handler(Environment::Production)->handle(new ExceptionHandlerStatusFixture(404));
+        $problem = $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(404));
 
         $this->assertSame(404, $problem->status);
     }
 
     public function testItFallsBackToInternalServerErrorForATooLowStatus(): void
     {
-        $this->assertSame(500, $this->handler(Environment::Production)->handle(new ExceptionHandlerStatusFixture(200))->status);
+        $this->assertSame(500, $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(200))->status);
     }
 
     public function testItFallsBackToInternalServerErrorForATooHighStatus(): void
     {
-        $this->assertSame(500, $this->handler(Environment::Production)->handle(new ExceptionHandlerStatusFixture(600))->status);
+        $this->assertSame(500, $this->handler(Mode::Minimal)->handle(new ExceptionHandlerStatusFixture(600))->status);
     }
 
-    public function testProductionOmitsTheCauseButDevelopmentNestsIt(): void
+    public function testMinimalOmitsTheCauseButFullNestsIt(): void
     {
         $exception = new RuntimeException('outer', 0, new LogicException('inner'));
 
-        $this->assertNull($this->handler(Environment::Production)->handle($exception)->previous);
+        $this->assertNull($this->handler(Mode::Minimal)->handle($exception)->previous);
 
-        $previous = $this->handler(Environment::Development)->handle($exception)->previous;
+        $previous = $this->handler(Mode::Full)->handle($exception)->previous;
 
         $this->assertInstanceOf(Problem::class, $previous);
-        $this->assertSame('inner', $previous->detail);
-        $this->assertSame('LogicException', $previous->title);
+        $this->assertSame('LogicException: inner', $previous->detail);
+        $this->assertSame('Internal Server Error', $previous->title);
     }
 
     public function testItNestsEveryLinkOfALongCauseChain(): void
@@ -2167,7 +2395,7 @@ final class ExceptionHandlerTest extends TestCase
             $exception = new RuntimeException('link-' . $i, 0, $exception);
         }
 
-        $problem = $this->handler(Environment::Development)->handle($exception);
+        $problem = $this->handler(Mode::Full)->handle($exception);
         $links = 1;
 
         while ($problem->previous instanceof Problem) {
@@ -2176,22 +2404,22 @@ final class ExceptionHandlerTest extends TestCase
         }
 
         $this->assertSame(6, $links);
-        $this->assertSame('link-0', $problem->detail);
+        $this->assertSame('RuntimeException: link-0', $problem->detail);
     }
 
     public function testItResolvesStatusesInsideTheChainIndependently(): void
     {
         $exception = new RuntimeException('outer', 0, new ExceptionHandlerStatusFixture(409));
 
-        $problem = $this->handler(Environment::Development)->handle($exception);
+        $problem = $this->handler(Mode::Full)->handle($exception);
 
         $this->assertSame(500, $problem->status);
         $this->assertSame(409, $problem->previous?->status);
     }
 
-    private function handler(Environment $environment): ExceptionHandler
+    private function handler(Mode $mode): ExceptionHandler
     {
-        return new ExceptionHandler($environment, projectDir: $this->root);
+        return new ExceptionHandler($mode, projectDir: $this->root);
     }
 }
 
@@ -2240,10 +2468,13 @@ interface StatusCodeInterface
 `src/ExceptionHandler.php`:
 
 ```php
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Snafu;
 
+use Override;
 use Snafu\Document\Problem;
 use Snafu\Http\StatusCodeInterface;
 use Snafu\Path\PathRelativizer;
@@ -2257,7 +2488,7 @@ use Throwable;
  *
  * @api
  */
-final class ExceptionHandler
+final class ExceptionHandler implements ExceptionHandlerInterface
 {
     private const int DEFAULT_TRACE_LIMIT = 30;
 
@@ -2267,25 +2498,38 @@ final class ExceptionHandler
 
     private readonly TraceFactory $trace;
 
+    /**
+     * A negative cap is clamped rather than trusted: `array_slice()`
+     * treats a negative length as a count from the end, so it cannot
+     * mean "at most N frames".
+     */
     public function __construct(
-        private readonly Environment $environment,
+        private readonly Mode $mode,
         ?string $projectDir = null,
         int $traceLimit = self::DEFAULT_TRACE_LIMIT,
     ) {
+        if ($traceLimit < 0) {
+            $traceLimit = 0;
+        }
+
         $this->relativizer = new PathRelativizer($projectDir);
         $this->source = new SourceContext();
         $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentSanitizer(), $traceLimit);
     }
 
+    #[Override]
     public function handle(Throwable $exception): Problem
     {
         $status = self::status($exception);
 
-        if ($this->environment === Environment::Production) {
+        if ($this->mode === Mode::Minimal) {
             return Problem::minimal($exception, $status);
         }
 
         $previous = $exception->getPrevious();
+
+        /** @var list<array<string, mixed>> $trace */
+        $trace = $exception->getTrace();
 
         return Problem::development(
             exception: $exception,
@@ -2293,7 +2537,7 @@ final class ExceptionHandler
             file: $this->relativizer->relativize($exception->getFile()),
             line: $exception->getLine(),
             source: $this->source->window($exception->getFile(), $exception->getLine()),
-            trace: $this->trace->frames($exception->getTrace()),
+            trace: $this->trace->frames($trace),
             previous: $previous === null ? null : $this->handle($previous),
         );
     }
@@ -2374,7 +2618,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use RuntimeException;
 use Snafu\Document\Problem;
-use Snafu\Environment;
+use Snafu\Mode;
 use Snafu\ExceptionHandler;
 use Snafu\ExceptionHandlerInterface;
 use Snafu\Http\StatusCodeInterface;
@@ -2424,25 +2668,26 @@ final class ExceptionMiddlewareTest extends TestCase
         $document = $this->document($response);
 
         $this->assertSame('about:blank', $document['type']);
-        $this->assertSame('RuntimeException', $document['title']);
+        $this->assertSame('Internal Server Error', $document['title']);
+        $this->assertSame('RuntimeException', $document['detail']);
         $this->assertSame(500, $document['status']);
         $this->assertSame(5, $document['code']);
     }
 
-    public function testProductionOmitsDevelopmentMembers(): void
+    public function testMinimalOmitsFullMembers(): void
     {
-        $response = $this->middleware(Environment::Production)->process($this->request(), $this->throws(new RuntimeException('boom')));
+        $response = $this->middleware(Mode::Minimal)->process($this->request(), $this->throws(new RuntimeException('boom')));
 
-        $this->assertSame(['type', 'title', 'status', 'code'], array_keys($this->document($response)));
+        $this->assertSame(['type', 'title', 'status', 'code', 'detail'], array_keys($this->document($response)));
     }
 
-    public function testDevelopmentIncludesTheTraceAndOrigin(): void
+    public function testFullIncludesTheTraceAndOrigin(): void
     {
-        $response = $this->middleware(Environment::Development)->process($this->request(), $this->throws(new RuntimeException('boom')));
+        $response = $this->middleware(Mode::Full)->process($this->request(), $this->throws(new RuntimeException('boom')));
 
         $document = $this->document($response);
 
-        $this->assertSame('boom', $document['detail']);
+        $this->assertSame('RuntimeException: boom', $document['detail']);
         $this->assertSame('tests/Middleware/ExceptionMiddlewareTest.php', $document['file']);
         $this->assertIsArray($document['source']);
         $this->assertNotSame([], $document['source']);
@@ -2462,7 +2707,8 @@ final class ExceptionMiddlewareTest extends TestCase
         $response = $this->middleware()->process($this->request(), $this->throws(new Error('broken')));
 
         $this->assertSame(500, $response->getStatusCode());
-        $this->assertSame('Error', $this->document($response)['title']);
+        $this->assertSame('Internal Server Error', $this->document($response)['title']);
+        $this->assertSame('Error', $this->document($response)['detail']);
     }
 
     public function testItLogsTheExceptionWithRequestContext(): void
@@ -2499,7 +2745,7 @@ final class ExceptionMiddlewareTest extends TestCase
         $response = $this->middleware(logger: new MiddlewareThrowingLogger())->process($this->request(), $this->throws(new RuntimeException('boom')));
 
         $this->assertSame(500, $response->getStatusCode());
-        $this->assertSame('RuntimeException', $this->document($response)['title']);
+        $this->assertSame('RuntimeException', $this->document($response)['detail']);
         $this->assertStringContainsString('logger failed', $this->errorLogContents());
     }
 
@@ -2517,8 +2763,8 @@ final class ExceptionMiddlewareTest extends TestCase
 
         $document = $this->document($response);
 
-        $this->assertSame(['type', 'title', 'status', 'code'], array_keys($document));
-        $this->assertSame('RuntimeException', $document['title']);
+        $this->assertSame(['type', 'title', 'status', 'code', 'detail'], array_keys($document));
+        $this->assertSame('RuntimeException', $document['detail']);
         $this->assertStringContainsString('handler failed', $this->errorLogContents());
         $this->assertStringContainsString('logger failed', $this->errorLogContents());
     }
@@ -2526,7 +2772,7 @@ final class ExceptionMiddlewareTest extends TestCase
     public function testInvalidUtf8InASourceFileStillProducesDecodableJson(): void
     {
         $exception = $this->utf8Failure();
-        $response = $this->middleware(Environment::Development)->process($this->request(), $this->throws($exception));
+        $response = $this->middleware(Mode::Full)->process($this->request(), $this->throws($exception));
         $body = (string) $response->getBody();
 
         $this->assertIsArray($this->document($response));
@@ -2535,13 +2781,13 @@ final class ExceptionMiddlewareTest extends TestCase
     }
 
     private function middleware(
-        Environment $environment = Environment::Production,
+        Mode $mode = Mode::Minimal,
         ?LoggerInterface $logger = null,
         string $logLevel = LogLevel::ERROR,
     ): ExceptionMiddleware {
         return new ExceptionMiddleware(
             $this->factory,
-            new ExceptionHandler($environment, projectDir: $this->root),
+            new ExceptionHandler($mode, projectDir: $this->root),
             $logger,
             $logLevel,
         );
@@ -2693,11 +2939,12 @@ Expected: FAIL — `Class "Snafu\Middleware\ExceptionMiddleware" not found`.
 - [ ] **Step 4: Write the implementation**
 
 ```php
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Snafu\Middleware;
 
-use JsonException;
 use Override;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -2709,6 +2956,15 @@ use Psr\Log\LogLevel;
 use Snafu\Document\Problem;
 use Snafu\ExceptionHandlerInterface;
 use Throwable;
+
+use function error_log;
+use function json_encode;
+use function sprintf;
+
+use const JSON_INVALID_UTF8_SUBSTITUTE;
+use const JSON_THROW_ON_ERROR;
+use const JSON_UNESCAPED_SLASHES;
+use const JSON_UNESCAPED_UNICODE;
 
 /**
  * Catches anything the rest of the stack throws and answers with a
@@ -2723,7 +2979,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
     /**
      * Used only when the problem document itself cannot be encoded.
      */
-    private const string FALLBACK_BODY = '{"type":"about:blank","title":"InternalServerError","status":500,"code":0}';
+    private const string FALLBACK_BODY = '{"type":"about:blank","title":"Internal Server Error","status":500,"code":0}';
 
     public function __construct(
         private readonly ResponseFactoryInterface $responseFactory,
@@ -2761,10 +3017,12 @@ final class ExceptionMiddleware implements MiddlewareInterface
             $problem = Problem::minimal($exception, 500);
         }
 
-        $this->log($request, $exception, $problem->status);
+        [$status, $body] = self::encode($problem);
 
-        $response = $this->responseFactory->createResponse($problem->status);
-        $response->getBody()->write(self::encode($problem));
+        $this->log($request, $exception, $status);
+
+        $response = $this->responseFactory->createResponse($status);
+        $response->getBody()->write($body);
 
         return $response->withHeader('Content-Type', self::CONTENT_TYPE);
     }
@@ -2791,18 +3049,27 @@ final class ExceptionMiddleware implements MiddlewareInterface
         }
     }
 
-    private static function encode(Problem $problem): string
+    /**
+     * @return array{int, string} the HTTP status and the encoded body
+     */
+    private static function encode(Problem $problem): array
     {
         try {
-            return json_encode(
-                $problem,
-                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR,
+            $body = json_encode(
+                value: $problem,
+                flags: JSON_UNESCAPED_SLASHES
+                | JSON_UNESCAPED_UNICODE
+                | JSON_INVALID_UTF8_SUBSTITUTE
+                | JSON_THROW_ON_ERROR,
             );
-        } catch (JsonException $exception) {
-            error_log(sprintf('snafu: could not encode the problem document: %s', $exception->getMessage()));
+        } catch (Throwable $failure) {
+            error_log(sprintf('snafu: could not encode the problem document: %s', $failure->getMessage()));
 
-            return self::FALLBACK_BODY;
+            return [500, self::FALLBACK_BODY];
         }
+
+        /** @var string $body */
+        return [$problem->status, $body];
     }
 }
 ```
@@ -2814,7 +3081,7 @@ Expected: PASS, 13 tests.
 
 Two assertions exist to prove failure modes, not to test plumbing:
 
-- `testAThrowingHandlerStillProducesAProblemDocument` injects a handler that throws (`MiddlewareThrowingHandler`), so the middleware's fallback runs: the body must still be the production shape and the secondary failure must reach the error log. This branch is unreachable through `ExceptionHandler` itself, because every collaborator is `final` and the handler is total — which is exactly why `ExceptionHandlerInterface` exists (decision 27).
+- `testAThrowingHandlerStillProducesAProblemDocument` injects a handler that throws (`MiddlewareThrowingHandler`), so the middleware's fallback runs: the body must still be the minimal shape and the secondary failure must reach the error log. This branch is unreachable through `ExceptionHandler` itself, because every collaborator is `final` and the handler is total — which is exactly why `ExceptionHandlerInterface` exists (decision 27).
 - `testInvalidUtf8InASourceFileStillProducesDecodableJson` fails if `JSON_INVALID_UTF8_SUBSTITUTE` is dropped from the flag set.
 
 - [ ] **Step 6: Commit**
@@ -2857,13 +3124,13 @@ composer require snafu/snafu
 
 ```php
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Snafu\Environment;
+use Snafu\Mode;
 use Snafu\ExceptionHandler;
 use Snafu\Middleware\ExceptionMiddleware;
 
 $middleware = new ExceptionMiddleware(
     new Psr17Factory(),
-    new ExceptionHandler(Environment::fromEnv()),
+    new ExceptionHandler(Mode::fromEnv()),
     $logger,   // optional PSR-3 logger; omit to disable logging
 );
 ```
@@ -2873,27 +3140,31 @@ rest of the stack throws.
 
 ## Modes
 
-`Environment::fromEnv()` reads `APP_ENV`, then `APP_DEBUG`:
+`Mode::fromEnv()` reads `APP_ENV`, then `APP_DEBUG`:
 
 | `APP_ENV` | `APP_DEBUG` | Mode |
 |-----------|-------------|------|
-| `dev`, `development`, `local` | any | development |
-| anything else | `1`, `true`, `on`, `yes` | development |
-| anything else | anything else | production |
+| `dev`, `development`, `local` | any | full |
+| anything else | `1`, `true`, `on`, `yes` | full |
+| anything else | anything else | minimal |
 
-Anything unrecognised, including unset variables, is production: a mode
+Anything unrecognised, including unset variables, is minimal: a mode
 that leaks internals is never chosen by accident. Pass an
-`Environment` case explicitly to bypass detection.
+`Mode` case explicitly to bypass detection.
 
-Production responses carry the short exception class name and the
-exception code:
+`title` is the recommended HTTP status phrase for the document's status,
+as RFC 9457 §4.2.1 requires when `type` is `about:blank`. The exception
+identity travels in `detail`: minimal responses carry the short exception
+class name, and full responses set `detail` to `class: message`.
+
+Minimal responses:
 
 ```json
-{"type":"about:blank","title":"RuntimeException","status":500,"code":0}
+{"type":"about:blank","title":"Internal Server Error","status":500,"code":0,"detail":"RuntimeException"}
 ```
 
-Development responses add `detail`, `file`, `line`, `source`, `trace`,
-and, for chained exceptions, `previous`.
+Full responses add `file`, `line`, `source`, `trace`, and, for chained
+exceptions, `previous`.
 
 ## Traces
 
@@ -2908,15 +3179,17 @@ original line numbers preserved. Traces are capped at 30 frames
 flagged with `traceTruncated`.
 
 Frame arguments are included, truncated to depth 5, 50 items, and 500
-characters per string. Objects are reduced to a class name plus public
-properties, `#[\SensitiveParameter]` values are redacted, and
-`__toString()` is never called.
+bytes per string. Objects are reduced to a class name plus at most 50
+public properties, with the remainder reported by the same
+`"*truncated*": "N more items"` marker used for maps.
+`#[\SensitiveParameter]` values are redacted, and `__toString()` is
+never called.
 
 **Arguments require `zend.exception_ignore_args=Off`.** It defaults to
 `Off`, and `php.ini-development` sets `Off`, but `php.ini-production`
 sets `On`, which removes arguments from every trace PHP produces. An
-application running development mode with a production `php.ini` will
-see empty `args` arrays.
+application running full mode with a production `php.ini` will
+see frames with no `args` member.
 
 ## Custom status codes
 
@@ -2976,15 +3249,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ExceptionMiddleware`, a PSR-15 middleware that answers any uncaught
   `Throwable` with an RFC 9457 `application/problem+json` document.
 - `ExceptionHandler`, which maps a `Throwable` to a `Problem` document.
-- `Environment` with production and development modes, detected from
+- `Mode` with full and minimal modes, detected from
   `APP_ENV` and `APP_DEBUG`.
-- Development documents with message, origin, five-line source windows,
+- Full documents with message, origin, five-line source windows,
   relative paths, traces, and chained causes.
 - Trace frames with truncated frame arguments; `#[\SensitiveParameter]`
   values are redacted and `__toString()` is never invoked.
 - `Http\StatusCodeInterface` for exceptions that carry their own HTTP
   status code.
 - Optional PSR-3 logging of every caught throwable.
+- Depends on `codeinc/http-reason-phrase-lookup` for the HTTP status
+  phrases used as the document `title`.
 ```
 
 - [ ] **Step 3: Run the whole suite with coverage**
@@ -3011,7 +3286,7 @@ use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Snafu\Environment;
+use Snafu\Mode;
 use Snafu\ExceptionHandler;
 use Snafu\Middleware\ExceptionMiddleware;
 
@@ -3035,13 +3310,13 @@ final class Exploding implements RequestHandlerInterface
 
 $factory = new Psr17Factory();
 
-foreach ([Environment::Production, Environment::Development] as $environment) {
-    $middleware = new ExceptionMiddleware($factory, new ExceptionHandler($environment));
+foreach ([Mode::Minimal, Mode::Full] as $mode) {
+    $middleware = new ExceptionMiddleware($factory, new ExceptionHandler($mode));
     $response = $middleware->process(new ServerRequest('GET', 'https://api.example.com/widgets/1'), new Exploding());
 
     printf(
         "%s => HTTP %d %s\n%s\n\n",
-        $environment->value,
+        $mode->value,
         $response->getStatusCode(),
         $response->getHeaderLine('Content-Type'),
         (string) $response->getBody(),
@@ -3051,16 +3326,16 @@ foreach ([Environment::Production, Environment::Development] as $environment) {
 
 Run: `php /tmp/snafu-smoke.php`
 
-Expected: two bodies. Production prints exactly
-`{"type":"about:blank","title":"RuntimeException","status":500,"code":42}`.
-Development prints the same keys plus `detail`, `file` (`/tmp/snafu-smoke.php`
+Expected: two bodies. Minimal prints exactly
+`{"type":"about:blank","title":"Internal Server Error","status":500,"code":42,"detail":"RuntimeException"}`.
+Full prints the same keys plus `file` (`/tmp/snafu-smoke.php`
 is outside the project directory, so it stays absolute — that is the
 documented behaviour), `line`, `source` with the `throw` line, and `trace`
 whose innermost frame is the call to `Boom::explode`, with `args`
 containing `"token-value"` (arguments appear when
 `zend.exception_ignore_args` is `Off`, which is the default). Read the
-output: if the production body
-contains any development member, Task 6 is wrong.
+output: if the minimal body
+contains any full member, Task 6 is wrong.
 
 - [ ] **Step 6: Commit**
 
@@ -3077,6 +3352,6 @@ git commit -m "docs: document usage, modes, traces, and status codes"
 Before declaring the plan done, confirm each of these:
 
 - `composer run verify` passes; coverage is exactly 100%.
-- Every file listed under `src/` in the spec exists: `Environment.php`, `ExceptionHandlerInterface.php`, `ExceptionHandler.php`, `Http/StatusCodeInterface.php`, `Middleware/ExceptionMiddleware.php`, `Document/{Problem,Trace,Frame,SourceLine,SanitizedObject,SanitizedMap}.php`, `Path/PathRelativizer.php`, `Trace/{TraceFactory,SourceContext,ArgumentSanitizer}.php`.
+- Every file listed under `src/` in the spec exists: `Mode.php`, `ExceptionHandlerInterface.php`, `ExceptionHandler.php`, `Http/StatusCodeInterface.php`, `Middleware/ExceptionMiddleware.php`, `Document/{Problem,Trace,Frame,SourceLine,SanitizedObject,SanitizedMap}.php`, `Path/PathRelativizer.php`, `Trace/{TraceFactory,SourceContext,ArgumentSanitizer}.php`.
 - `git grep -n 'vendor' src/` returns nothing: no vendor detection survives anywhere in the implementation.
-- The smoke script's production body is exactly `{"type":"about:blank","title":"RuntimeException","status":500,"code":42}`.
+- The smoke script's minimal body is exactly `{"type":"about:blank","title":"Internal Server Error","status":500,"code":42,"detail":"RuntimeException"}`.
