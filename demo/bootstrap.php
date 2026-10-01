@@ -22,7 +22,7 @@ use function ini_set;
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 /**
- * @param Closure(): never $action
+ * @param Closure(): ResponseInterface $action
  *
  * @internal
  */
@@ -35,14 +35,14 @@ function run_demo(Mode $mode, Closure $action): void
     $middleware = new ExceptionMiddleware($factory, new ExceptionHandler($mode));
     $handler = new class($action) implements RequestHandlerInterface {
         public function __construct(
-            /** @var Closure(): never */
+            /** @var Closure(): ResponseInterface */
             private readonly Closure $action,
         ) {}
 
         #[Override]
         public function handle(ServerRequestInterface $request): ResponseInterface
         {
-            ($this->action)();
+            return ($this->action)();
         }
     };
 
