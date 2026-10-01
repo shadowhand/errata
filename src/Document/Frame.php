@@ -21,7 +21,7 @@ final readonly class Frame implements JsonSerializable
         public ?string $function = null,
         public ?string $class = null,
         public ?string $type = null,
-        /** @var list<mixed>|null */
+        /** @var list<string>|null */
         public ?array $args = null,
         public ?string $source = null,
     ) {}

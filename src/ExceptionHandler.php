@@ -7,7 +7,7 @@ namespace Errata;
 use Errata\Document\Problem;
 use Errata\Http\StatusCodeInterface;
 use Errata\Path\PathRelativizer;
-use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
 use Override;
@@ -38,7 +38,7 @@ final readonly class ExceptionHandler implements ExceptionHandlerInterface
 
         $this->relativizer = new PathRelativizer($projectDir);
         $this->source = new SourceContext();
-        $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentSanitizer(), $traceLimit);
+        $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentTyper(), $traceLimit);
     }
 
     #[Override]

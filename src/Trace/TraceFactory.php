@@ -33,7 +33,7 @@ final class TraceFactory
     public function __construct(
         private readonly PathRelativizer $relativizer,
         private readonly SourceContext $source,
-        private readonly ArgumentSanitizer $arguments,
+        private readonly ArgumentTyper $types,
         private readonly int $traceLimit,
     ) {}
 
@@ -125,7 +125,7 @@ final class TraceFactory
      *
      * @param array<string, mixed> $entry
      *
-     * @return list<mixed>|null
+     * @return list<string>|null
      */
     private function args(array $entry): ?array
     {
@@ -133,7 +133,7 @@ final class TraceFactory
             return null;
         }
 
-        return array_map($this->arguments->sanitize(...), array_values($entry['args']));
+        return array_map($this->types->type(...), array_values($entry['args']));
     }
 
     /**

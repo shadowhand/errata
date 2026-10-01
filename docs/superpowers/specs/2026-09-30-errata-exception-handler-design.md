@@ -14,6 +14,17 @@ JSON, so this amendment reduces `source` to the single reported line. Each amend
 response contract; no compatibility format is retained. The sections below describe the current contract, and
 the implementation follows it.
 
+## Argument-type amendments — 2026-10-01
+
+Trace frame arguments are reported as types, never values. `args` is a list of type names: `get_debug_type()` for
+every value, except arrays, which are `vec` when `array_is_list()` is true and `dict` otherwise. A
+`SensitiveParameterValue` is unwrapped so the trace reports the type of the protected value, never the value.
+
+This replaces the earlier argument sanitizer, which emitted truncated values, object property maps, and redaction
+markers. Because no value ever reaches the trace, there is nothing to truncate, no cycle to detect, no user code
+to avoid invoking, and no redaction to perform; `SanitizedMap`, `SanitizedObject`, and `ArgumentSanitizer` are
+removed. The sections below describe the current contract, and the implementation follows it.
+
 ## Purpose
 
 A small library that turns any uncaught `Throwable` in a JSON API into a
@@ -67,23 +78,23 @@ later changes.
 | 6 | Trace frame shape | Reported `line` plus one `source` string: the source line at that line |
 | 7 | Vendor detection | None: no vendor flag, no vendor-directory config; every frame is treated identically |
 | 8 | Frame order | Innermost-first — PHP's own `getTrace()` order, nothing reversed |
-| 9 | Frame arguments | Included, truncated; `#[\SensitiveParameter]` respected; omitted when PHP does not report them |
+| 9 | Frame arguments | Included as types only; `#[\SensitiveParameter]` unwrapped to the protected value's type; omitted when PHP does not report them |
 | 10 | Path base | Composer-derived default, individually overridable |
 | 11 | Trace length | Capped, default 30 frames, keeps the innermost frames |
 | 12 | Mode source | `APP_ENV`, then `APP_DEBUG`, then Minimal |
 | 13 | Non-500 status | Opt-in `StatusCodeInterface`; interface only, no shipped exception classes |
 | 14 | `code` member | `(int) $exception->getCode()` |
 | 15 | Handler return | `Problem` value object (`JsonSerializable`) |
-| 16 | Argument truncation | Depth 5, 50 items, 500-byte strings |
+| 16 | Argument representation | Types only: `get_debug_type()`, with arrays split into `vec`/`dict` |
 | 17 | Chained exceptions | Recursed in full mode, omitted in minimal mode |
 | 18 | Logger failure | Caught, reported with `error_log()`, processing continues |
 | 19 | Log context | `exception`, `method`, `path`, `status` |
-| 20 | Objects in arguments | Class name plus at most 50 public properties |
+| 20 | Objects in arguments | Class name only |
 | 21 | Origin frame | Top-level `file`/`line`/`source` only; not duplicated into `trace` |
 | 22 | Response headers | `Content-Type: application/problem+json` only |
 | 23 | Source context | The source line at the reported line, origin and frames alike, trimmed of surrounding whitespace |
 | 24 | Document types | DTOs implementing `JsonSerializable`; bare arrays only for lists |
-| 25 | Map payloads | String-keyed maps are carried by a DTO and serialized as a JSON object |
+| 25 | Map payloads | None: arguments carry no values, so no map DTO exists |
 | 26 | API markers | Document DTOs are `@api`; collaborator classes are `@internal` |
 | 27 | Handler seam | `ExceptionHandlerInterface`, implemented by `ExceptionHandler`, is what `ExceptionMiddleware` depends on |
 | 28 | `title` / `detail` | `title` is the phrase for the status from `codeinc/http-reason-phrase-lookup`'s `HttpReasonPhraseLookup::getReasonPhrase()`, or the code when no phrase is registered; `detail` carries the exception identity — short class name in minimal, `class: message` in full |
@@ -119,12 +130,10 @@ src/
   Document/Problem.php                   final readonly, JsonSerializable
   Document/Trace.php                     final readonly, JsonSerializable
   Document/Frame.php                     final readonly, JsonSerializable
-  Document/SanitizedObject.php           final readonly, JsonSerializable
-  Document/SanitizedMap.php              final readonly, JsonSerializable
   Path/PathRelativizer.php               final class
   Trace/TraceFactory.php                 final class
   Trace/SourceContext.php                final class
-  Trace/ArgumentSanitizer.php            final class
+  Trace/ArgumentTyper.php                final class
 tests/
   Fixtures/                              source files and traces used by tests
 ```
@@ -274,34 +283,9 @@ final readonly class Frame implements JsonSerializable
         public ?string $function = null,
         public ?string $class = null,
         public ?string $type = null,
-        /** @var list<mixed>|null */
+        /** @var list<string>|null */
         public ?array $args = null,
         public ?string $source = null,
-    ) {}
-
-    #[Override]
-    public function jsonSerialize(): array;
-}
-
-/** @api */
-final readonly class SanitizedObject implements JsonSerializable
-{
-    public function __construct(
-        public string $class,
-        /** @var array<string, mixed> */
-        public array $properties,
-    ) {}
-
-    #[Override]
-    public function jsonSerialize(): array;
-}
-
-/** @api */
-final readonly class SanitizedMap implements JsonSerializable
-{
-    public function __construct(
-        /** @var array<string, mixed> */
-        public array $entries,
     ) {}
 
     #[Override]
@@ -323,21 +307,16 @@ Serialization rules:
   `truncated` is emitted only when `$this->trace->truncated` is
   `true`, so `Problem` holds no duplicated truncation flag.
 - `Frame::jsonSerialize()` omits null members, including a null `args`.
-  `args` is emitted only when PHP reported arguments for the frame, so
-  `args: []` is a reported empty list and an absent `args` member means
-  PHP did not report arguments (as with
-  `zend.exception_ignore_args=On`). `source` is omitted only when `null`,
-  not when it is an empty or whitespace-only string.
+  `args` is a list of type names (see "Argument types") and is emitted
+  only when PHP reported arguments for the frame, so `args: []` is a
+  reported empty list and an absent `args` member means PHP did not
+  report arguments (as with `zend.exception_ignore_args=On`). `source`
+  is omitted only when `null`, not when it is an empty or
+  whitespace-only string.
 - `Trace::jsonSerialize()` returns the frame list, so a `Trace` is
   exactly the value of the document's `trace` member.
-- `SanitizedObject` serializes as
-  `{"@class": "<FQCN>", "props": {...}}`; `SanitizedMap` serializes as
-  its entries, i.e. as a JSON object.
 
-`SanitizedMap` exists only to keep string-keyed maps off the API surface:
-a sanitized argument that is a PHP map is returned as a DTO, not a bare
-array, while its JSON form stays an object. `Problem`, `Trace`, and
-`Frame` likewise never hand out structural arrays.
+`Problem`, `Trace`, and `Frame` never hand out structural arrays.
 
 ### Mode detection
 
@@ -426,8 +405,7 @@ and inventing a URI would be worse than omitting it.
 Throwable::getTrace() ──▶ TraceFactory ──▶ Document\Trace
                             ├─▶ PathRelativizer   relativize
                             ├─▶ SourceContext      source lines (every frame)
-                            └─▶ ArgumentSanitizer  args
-                                  └─▶ SanitizedObject / SanitizedMap / lists
+                            └─▶ ArgumentTyper      argument types
 ```
 
 `TraceFactory` takes the trace array as an explicit input, not a
@@ -445,7 +423,7 @@ final class TraceFactory
     public function __construct(
         private PathRelativizer $relativizer,
         private SourceContext $source,
-        private ArgumentSanitizer $arguments,
+        private ArgumentTyper $types,
         private int $traceLimit,
     ) {}
 
@@ -460,9 +438,9 @@ final class SourceContext
     public function line(string $absolutePath, int $line): ?string;
 }
 
-final class ArgumentSanitizer
+final class ArgumentTyper
 {
-    public function sanitize(mixed $value): mixed;
+    public function type(mixed $value): string;
 }
 ```
 
@@ -483,8 +461,8 @@ Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 - PHP embeds source paths in closure function names (`{closure:/absolute/file.php:line}`) and anonymous class names (after a NUL byte, before the `:line$ordinal` suffix). Relativize those embedded paths when they are under the application directory, preserving the surrounding PHP-generated name; paths outside it keep `PathRelativizer`'s absolute-path behavior.
 - `type` is `->` for instance method calls and `::` for static calls,
   matching the keys PHP itself provides in a trace entry.
-- `args` is present only when PHP reported arguments for the frame.
-  PHP omits the `args` key entirely when
+- `args` is present only when PHP reported arguments for the frame, and is a list of type names (see
+  "Argument types"). PHP omits the `args` key entirely when
   `zend.exception_ignore_args=On`; `TraceFactory` normalizes that (and a
   malformed key) to `null`, so the member is omitted. A frame PHP
   reports with an empty argument list still carries `args: []`.
@@ -515,48 +493,34 @@ Implementation: read the file once per distinct path with
 `trim()` it. Caching per instance prevents re-reading a file that
 appears in several frames.
 
-### Argument sanitizer
+### Argument types
 
-A total function: it may not throw, may not invoke user code, and may
-not loop forever. Contract:
+A total function: it may not throw and may not invoke user code. It
+returns one type name per argument, in order; the value itself never
+appears. Contract:
 
 | Input | Output |
 |-------|--------|
-| `null`, `bool`, `int`, `float` | verbatim |
-| `string` | verbatim up to 500 bytes, else first 500 bytes + `...` |
-| list array | `list<mixed>` of sanitized values, up to 50 entries |
-| map array | `SanitizedMap`, up to 50 entries |
-| `SensitiveParameterValue` | `"*redacted*"` |
-| other object | `SanitizedObject` (class name + up to 50 public properties) |
-| `Closure` | `"Closure"` |
-| `enum` | `"<FQCN>::<CASE>"` |
-| resource | `"resource(<type>)"` (via `get_resource_type()`) |
-| anything past depth 5 | `"*depth limit*"` |
+| array, `array_is_list()` true | `"vec"` |
+| array, otherwise | `"dict"` |
+| `SensitiveParameterValue` | the type of `getValue()` |
+| anything else | `get_debug_type()` |
 
 Rules:
 
-- Arrays are split by key: a list stays a list (`array_is_list()`), a map
-  becomes a `SanitizedMap`. A list is never serialized as a JSON object
-  and a map is never serialized as a JSON array.
-- Cycles are detected with `SplObjectStorage`; a repeated object is
-  emitted as `SanitizedObject` with an empty property map.
-- Public properties come from `get_object_vars()` called in the
-  sanitizer's own scope, which returns public properties only and does
-  not trigger `__get`. Uninitialized typed properties are absent
-  automatically. At most 50 properties are kept, and the rest are
-  summarized with the `*truncated*` marker. `__debugInfo`, `__toString`,
-  and `JsonSerializable` are never invoked.
-- `SensitiveParameterValue` is detected with `instanceof` before any
-  other object branch, and `getValue()` is never called. PHP redacts
-  sensitive parameters in the trace by substituting this object, so
-  respecting it is a correctness requirement, not a nicety. Verified on
-  PHP 8.5.11: the substituted object's type is `SensitiveParameterValue`,
-  exposing `__construct`, `getValue`, `__debugInfo`.
-- Truncation is marked in the payload, because a JSON array cannot carry
-  a named marker: a truncated list ends with the string
-  `"... (N more items)"`, and a truncated map or object gains the entry
-  `"*truncated*": "N more items"`. Array keys are stringified the same
-  way `json_encode()` would.
+- `get_debug_type()` names scalars (`null`, `bool`, `int`, `float`,
+  `string`), objects and enums by FQCN, closures as `Closure`, and
+  resources as `resource (stream)` or `resource (closed)`.
+- Arrays are split by key: a list is `vec` and anything else is `dict`.
+- A `SensitiveParameterValue` is unwrapped with `getValue()` and its
+  inner value typed; the value is never emitted. PHP redacts sensitive
+  parameters in the trace by substituting this object, so unwrapping it
+  reports the protected value's type without exposing the value.
+  `SensitiveParameterValue` is `final`, so `getValue()` cannot be
+  overridden and cannot run user code. Verified on PHP 8.5.11: the
+  substituted object's type is `SensitiveParameterValue`, exposing
+  `__construct`, `getValue`, `__debugInfo`.
+- There is no depth, item, or length limit, because no value is emitted.
 
 ### Path relativization
 
@@ -675,12 +639,10 @@ returning `false`.
     non-file paths, and reported lines before the start or beyond EOF.
     Assert the exact source string, and `null` only for unavailable
     context. Also verify the existing per-instance file cache.
-  - `ArgumentSanitizer`: scalars, long strings, list and map arrays,
-    `array_is_list()` divergence (`[0 => 'a', 2 => 'b']`), 50+ entries in
-    both shapes, nesting past depth 5, cyclic object graphs,
-    `SensitiveParameterValue`, closures, enums, resources, objects with
-    public/private/protected properties, and objects with a throwing
-    `__toString`.
+  - `ArgumentTyper`: scalars, `vec`/`dict` arrays including
+    `array_is_list()` divergence (`[0 => 'a', 2 => 'b']`), objects,
+    closures, enums, open and closed resources, and
+    `SensitiveParameterValue` unwrapping to a scalar and to an array.
   - `PathRelativizer`: a path inside the project directory, a path
     outside it, a sibling directory whose name merely starts with the
     project directory name, and an unnormalized Composer path. The
@@ -693,8 +655,7 @@ returning `false`.
     the project directory — still carrying its `source` line.
   - Document DTOs: each `jsonSerialize()` shape, member ordering and
     omission rules, null `source` omitted but blank source lines retained,
-    `truncated` present only when truncated, and
-    `SanitizedMap`/`SanitizedObject` payload shapes.
+    and `truncated` present only when truncated.
   - `ExceptionHandler`: both modes, the status interface in and out of
     range, and chained exceptions.
 - Middleware integration tests use `nyholm/psr7`'s `Psr17Factory` with a

@@ -6,7 +6,7 @@ namespace Errata\Tests\Trace;
 
 use Errata\Document\Trace;
 use Errata\Path\PathRelativizer;
-use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
 use LogicException;
@@ -46,7 +46,7 @@ final class TraceFactoryTest extends TestCase
         $this->factory = new TraceFactory(
             new PathRelativizer($this->root),
             new SourceContext(),
-            new ArgumentSanitizer(),
+            new ArgumentTyper(),
             traceLimit: 30,
         );
     }
@@ -185,7 +185,7 @@ final class TraceFactoryTest extends TestCase
                 'function' => 'run',
                 'class' => 'App\Thing',
                 'type' => '->',
-                'args' => ['plain', new stdClass()],
+                'args' => ['plain', new stdClass(), [1, 2], ['a' => 1]],
             ],
         ]);
 
@@ -195,7 +195,7 @@ final class TraceFactoryTest extends TestCase
                     'function' => 'run',
                     'class' => 'App\Thing',
                     'type' => '->',
-                    'args' => ['plain', ['@class' => 'stdClass', 'props' => []]],
+                    'args' => ['string', 'stdClass', 'vec', 'dict'],
                 ],
             ],
             $this->serialize($trace),

@@ -63,10 +63,10 @@ The exception's origin and every frame carry one `source` string: the source lin
 of surrounding whitespace. A blank line is an empty string. Unavailable source is omitted. Traces are capped at
 30 frames (`traceLimit`), keeping the frames nearest the throw; a capped trace is flagged with `truncated`.
 
-Frame arguments are included, truncated to depth 5, 50 items, and 500 bytes per string. Objects are reduced to a
-class name plus at most 50 public properties, with the remainder reported by the same `"*truncated*": "N more
-items"` marker used for maps. `#[\SensitiveParameter]` values are redacted, and `__toString()` is never called.
-A frame whose arguments PHP did not report carries no `args` member at all.
+Frame arguments are reduced to their types, never their values: `args` is a list of type names such as `int`,
+`string`, `bool`, `null`, `float`, `Closure`, a class name, or `resource (stream)`. An array is `vec` when it is a
+list and `dict` otherwise. A `#[\SensitiveParameter]` argument reports the type of the protected value, never the
+value. A frame whose arguments PHP did not report carries no `args` member at all.
 
 **Arguments require `zend.exception_ignore_args=Off`.** It defaults to `Off`, and `php.ini-development` sets
 `Off`, but `php.ini-production` sets `On`, which removes arguments from every trace PHP produces. An application
@@ -105,20 +105,21 @@ After running `composer install` (including development dependencies), start the
 php -S localhost:8000 demo/index.php
 ```
 
-Open <http://localhost:8000/> for a centered grid of links. The same router serves all four demos, each intentionally
+Open <http://localhost:8000/> for a centered grid of links. The same router serves all five demos, each intentionally
 returning a 500 `application/problem+json` response through `ExceptionMiddleware`:
 
 - `/minimal`: production-style output without the exception message, source, or trace.
 - `/full`: the same exception with development details.
-- `/recursion`: bounded recursive object calls with cyclic public properties and a truncated trace.
-- `/sensitive`: redacted parameter arguments and public properties wrapped in `SensitiveParameterValue`.
+- `/recursion`: bounded recursive calls that produce a truncated trace.
+- `/sensitive`: a `#[\SensitiveParameter]` argument reduced to its type, never its value.
+- `/types`: a call with scalar, `vec`, `dict`, object, enum, and closure arguments, each shown as its type.
 
 You can also request a demo directly, for example with `curl -i http://localhost:8000/full`.
 
 Development demos enable exception arguments regardless of your `php.ini`. The sensitive demo accepts optional
-`DEMO_PASSWORD` and `DEMO_TOKEN` environment variables; its defaults are fake credentials. `#[SensitiveParameter]`
-protects trace arguments, not stored properties, exception messages, or source code. Use `SensitiveParameterValue`
-for sensitive public properties and never put real secrets in messages or source files.
+`DEMO_PASSWORD` and `DEMO_TOKEN` environment variables; its defaults are fake credentials. Because traces carry
+argument types only, no argument value ever reaches the response; `#[\SensitiveParameter]` is still respected.
+Never put real secrets in exception messages or source files.
 
 ## Development
 
