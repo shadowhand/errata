@@ -23,3 +23,4 @@
 ## PHP
 
 - When necessary, promoted properties should have `@var` declarations instead of `@param`, e.g. for `array` types.
+- Tasks must be verified `composer run verify` after any code changes.
