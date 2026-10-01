@@ -10,3 +10,7 @@
 - When applying fixes in response to a review, amend to the commit that introduced the issue, rather than creating a new commit.
 - Keep a changelog of all notable changes.
 - Use semantic versioning for release tags. Never include a `v` prefix on versions. Always sign release tags.
+
+## PHP Style
+
+- When necessary, promoted properties should have `@var` declarations instead of `@param`, e.g. for `array` types.
