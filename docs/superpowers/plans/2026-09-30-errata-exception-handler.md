@@ -1,14 +1,14 @@
-# Snafu Exception Handler Implementation Plan
+# Errata Exception Handler Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with full and minimal modes.
 
-**Architecture:** Ten focused units. Value objects in `Snafu\Document\` own the JSON contract; `Snafu\Trace\` holds the plumbing that reads source lines, sanitizes arguments, and assembles frames; `Snafu\Path\PathRelativizer` turns absolute paths into project-relative ones; `Snafu\ExceptionHandler` maps a `Throwable` to a `Problem`; `Snafu\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
+**Architecture:** Ten focused units. Value objects in `Errata\Document\` own the JSON contract; `Errata\Trace\` holds the plumbing that reads source lines, sanitizes arguments, and assembles frames; `Errata\Path\PathRelativizer` turns absolute paths into project-relative ones; `Errata\ExceptionHandler` maps a `Throwable` to a `Problem`; `Errata\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
 
 **Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-snafu-exception-handler-design.md` — read it alongside this plan; it records why each decision was made.
+**Spec:** `docs/superpowers/specs/2026-09-30-errata-exception-handler-design.md` — read it alongside this plan; it records why each decision was made.
 
 > **Source-context amendments (2026-10-01, implemented):** The spec requires `source` as a single string: the
 > source line at the reported line, trimmed of surrounding whitespace. This supersedes the `SourceLine`
@@ -56,19 +56,19 @@ Failure modes the spec implies but no single task obviously owns. Each has a tes
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Snafu\Mode` — `enum Mode: string` with cases `Full = 'full'` and `Minimal = 'minimal'`, and `public static function fromEnv(): self`.
+- Produces: `Errata\Mode` — `enum Mode: string` with cases `Full = 'full'` and `Minimal = 'minimal'`, and `public static function fromEnv(): self`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests;
+namespace Errata\Tests;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\WithEnvironmentVariable;
 use PHPUnit\Framework\TestCase;
-use Snafu\Mode;
+use Errata\Mode;
 
 #[CoversClass(Mode::class)]
 final class ModeTest extends TestCase
@@ -148,14 +148,14 @@ final class ModeTest extends TestCase
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/ModeTest.php`
-Expected: FAIL — `Class "Snafu\Mode" not found`.
+Expected: FAIL — `Class "Errata\Mode" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu;
+namespace Errata;
 
 /**
  * The document mode the handler renders.
@@ -216,8 +216,8 @@ git commit -m "feat: detect the document mode from the environment"
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `Snafu\Document\SourceLine` — `__construct(public int $line, public string $code)`, `jsonSerialize(): array` returning `['line' => int, 'code' => string]`.
-  - `Snafu\Trace\SourceContext` — `window(string $absolutePath, int $line): list<SourceLine>`, always 5 lines (`line ± 2`), blank lines removed, empty list when the file is unreadable or the line is outside the file.
+  - `Errata\Document\SourceLine` — `__construct(public int $line, public string $code)`, `jsonSerialize(): array` returning `['line' => int, 'code' => string]`.
+  - `Errata\Trace\SourceContext` — `window(string $absolutePath, int $line): list<SourceLine>`, always 5 lines (`line ± 2`), blank lines removed, empty list when the file is unreadable or the line is outside the file.
 
 - [ ] **Step 1: Create the fixture file**
 
@@ -226,20 +226,20 @@ Content must be exactly these 13 lines (the tests below assert against these lin
 ```php
 <?php declare(strict_types=1);
 
-function snafu_fixture_alpha(): void
+function errata_fixture_alpha(): void
 {
     $alpha = 1;
 
     $beta = 2;
 }
 
-function snafu_fixture_omega(): void
+function errata_fixture_omega(): void
 {
     $omega = 3;
 }
 ```
 
-Line 1 is `<?php declare(strict_types=1);`, line 2 is empty, line 3 is `function snafu_fixture_alpha(): void`, line 4 is `{`, line 5 is `    $alpha = 1;`, line 6 is empty, line 7 is `    $beta = 2;`, line 8 is `}`, line 9 is empty, line 10 is `function snafu_fixture_omega(): void`, line 11 is `{`, line 12 is `    $omega = 3;`, line 13 is `}`.
+Line 1 is `<?php declare(strict_types=1);`, line 2 is empty, line 3 is `function errata_fixture_alpha(): void`, line 4 is `{`, line 5 is `    $alpha = 1;`, line 6 is empty, line 7 is `    $beta = 2;`, line 8 is `}`, line 9 is empty, line 10 is `function errata_fixture_omega(): void`, line 11 is `{`, line 12 is `    $omega = 3;`, line 13 is `}`.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -248,11 +248,11 @@ Line 1 is `<?php declare(strict_types=1);`, line 2 is empty, line 3 is `function
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SourceLine;
+use Errata\Document\SourceLine;
 
 #[CoversClass(SourceLine::class)]
 final class SourceLineTest extends TestCase
@@ -272,12 +272,12 @@ final class SourceLineTest extends TestCase
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SourceLine;
-use Snafu\Trace\SourceContext;
+use Errata\Document\SourceLine;
+use Errata\Trace\SourceContext;
 
 #[CoversClass(SourceContext::class)]
 final class SourceContextTest extends TestCase
@@ -297,7 +297,7 @@ final class SourceContextTest extends TestCase
 
         $this->assertSame(
             [
-                ['line' => 3, 'code' => 'function snafu_fixture_alpha(): void'],
+                ['line' => 3, 'code' => 'function errata_fixture_alpha(): void'],
                 ['line' => 4, 'code' => '{'],
                 ['line' => 5, 'code' => '    $alpha = 1;'],
                 ['line' => 7, 'code' => '    $beta = 2;'],
@@ -332,7 +332,7 @@ final class SourceContextTest extends TestCase
 
     public function testItReturnsNothingForAMissingFile(): void
     {
-        $this->assertSame([], $this->context->window('/nonexistent/snafu/window.php', 1));
+        $this->assertSame([], $this->context->window('/nonexistent/errata/window.php', 1));
     }
 
     public function testItReturnsNothingForADirectory(): void
@@ -353,7 +353,7 @@ final class SourceContextTest extends TestCase
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `vendor/bin/phpunit tests/Document/SourceLineTest.php tests/Trace/SourceContextTest.php`
-Expected: FAIL — `Class "Snafu\Document\SourceLine" not found`.
+Expected: FAIL — `Class "Errata\Document\SourceLine" not found`.
 
 - [ ] **Step 4: Write the implementation**
 
@@ -362,7 +362,7 @@ Expected: FAIL — `Class "Snafu\Document\SourceLine" not found`.
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;
@@ -395,9 +395,9 @@ final readonly class SourceLine implements JsonSerializable
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Trace;
+namespace Errata\Trace;
 
-use Snafu\Document\SourceLine;
+use Errata\Document\SourceLine;
 
 /**
  * Reads the fixed source window around a line of a file.
@@ -505,9 +505,9 @@ git commit -m "feat: read the five-line source window around a line"
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `Snafu\Document\SanitizedObject` — `__construct(public string $class, public array $properties)`, serializes to `['@class' => string, 'props' => array]`.
-  - `Snafu\Document\SanitizedMap` — `__construct(public array $entries)`, serializes to its entries (a JSON object).
-  - `Snafu\Trace\ArgumentSanitizer` — `sanitize(mixed $value): mixed`, total (never throws), limits depth 5 / 50 items / 500 bytes.
+  - `Errata\Document\SanitizedObject` — `__construct(public string $class, public array $properties)`, serializes to `['@class' => string, 'props' => array]`.
+  - `Errata\Document\SanitizedMap` — `__construct(public array $entries)`, serializes to its entries (a JSON object).
+  - `Errata\Trace\ArgumentSanitizer` — `sanitize(mixed $value): mixed`, total (never throws), limits depth 5 / 50 items / 500 bytes.
   - `sanitize()` returns: scalars verbatim; strings truncated with `...`; lists as `list<mixed>`; maps as `SanitizedMap`; plain objects as `SanitizedObject` with at most 50 public properties and a `*truncated*` marker for the remainder; `Closure` as `'Closure'`; enums as `'FQCN::CASE'`; resources as `'resource(type)'`; `SensitiveParameterValue` as `'*redacted*'`; anything past depth 5 as `'*depth limit*'`; a closed resource as `'resource(closed)'`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -517,11 +517,11 @@ git commit -m "feat: read the five-line source window around a line"
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SanitizedObject;
+use Errata\Document\SanitizedObject;
 
 #[CoversClass(SanitizedObject::class)]
 final class SanitizedObjectTest extends TestCase
@@ -541,11 +541,11 @@ final class SanitizedObjectTest extends TestCase
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SanitizedMap;
+use Errata\Document\SanitizedMap;
 
 #[CoversClass(SanitizedMap::class)]
 final class SanitizedMapTest extends TestCase
@@ -565,7 +565,7 @@ final class SanitizedMapTest extends TestCase
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
 use Closure;
 use Override;
@@ -573,9 +573,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use SensitiveParameterValue;
-use Snafu\Document\SanitizedMap;
-use Snafu\Document\SanitizedObject;
-use Snafu\Trace\ArgumentSanitizer;
+use Errata\Document\SanitizedMap;
+use Errata\Document\SanitizedObject;
+use Errata\Trace\ArgumentSanitizer;
 use stdClass;
 use Stringable;
 
@@ -697,7 +697,7 @@ final class ArgumentSanitizerTest extends TestCase
     {
         $this->assertSame('Closure', $this->sanitizer->sanitize(static fn (): int => 1));
         $this->assertSame(
-            'Snafu\Tests\Trace\ArgumentSanitizerEnum::Second',
+            'Errata\Tests\Trace\ArgumentSanitizerEnum::Second',
             $this->sanitizer->sanitize(ArgumentSanitizerEnum::Second),
         );
     }
@@ -765,7 +765,7 @@ final class ArgumentSanitizerHostileFixture implements Stringable
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `vendor/bin/phpunit tests/Document/SanitizedObjectTest.php tests/Document/SanitizedMapTest.php tests/Trace/ArgumentSanitizerTest.php`
-Expected: FAIL — `Class "Snafu\Document\SanitizedObject" not found`.
+Expected: FAIL — `Class "Errata\Document\SanitizedObject" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -774,7 +774,7 @@ Expected: FAIL — `Class "Snafu\Document\SanitizedObject" not found`.
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;
@@ -810,7 +810,7 @@ final readonly class SanitizedObject implements JsonSerializable
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;
@@ -850,12 +850,12 @@ final readonly class SanitizedMap implements JsonSerializable
 
 declare(strict_types=1);
 
-namespace Snafu\Trace;
+namespace Errata\Trace;
 
 use Closure;
 use SensitiveParameterValue;
-use Snafu\Document\SanitizedMap;
-use Snafu\Document\SanitizedObject;
+use Errata\Document\SanitizedMap;
+use Errata\Document\SanitizedObject;
 use SplObjectStorage;
 use UnitEnum;
 
@@ -1060,18 +1060,18 @@ git commit -m "feat: sanitize trace arguments without invoking user code"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Snafu\Path\PathRelativizer` — `__construct(?string $projectDir = null)` where `null` resolves to `Composer\InstalledVersions::getRootPackage()['install_path']` and then to `getcwd()`; `relativize(string $absolutePath): string` strips the project-directory prefix on a directory boundary and converts `\` to `/`, returning the absolute path otherwise.
+- Produces: `Errata\Path\PathRelativizer` — `__construct(?string $projectDir = null)` where `null` resolves to `Composer\InstalledVersions::getRootPackage()['install_path']` and then to `getcwd()`; `relativize(string $absolutePath): string` strips the project-directory prefix on a directory boundary and converts `\` to `/`, returning the absolute path otherwise.
 
 - [ ] **Step 1: Write the failing test**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Path;
+namespace Errata\Tests\Path;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Path\PathRelativizer;
+use Errata\Path\PathRelativizer;
 
 #[CoversClass(PathRelativizer::class)]
 final class PathRelativizerTest extends TestCase
@@ -1140,14 +1140,14 @@ final class PathRelativizerTest extends TestCase
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/Path/PathRelativizerTest.php`
-Expected: FAIL — `Class "Snafu\Path\PathRelativizer" not found`.
+Expected: FAIL — `Class "Errata\Path\PathRelativizer" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Path;
+namespace Errata\Path;
 
 use Composer\InstalledVersions;
 
@@ -1274,10 +1274,10 @@ git commit -m "feat: relativize exception paths against the project directory"
 - Test: `tests/Document/TraceTest.php`
 
 **Interfaces:**
-- Consumes: `Snafu\Document\SourceLine` (Task 2).
+- Consumes: `Errata\Document\SourceLine` (Task 2).
 - Produces:
-  - `Snafu\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, ?array $args = null, array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is emitted only when PHP reported arguments for the frame, so `args: []` is a reported empty list and an absent member means PHP did not report arguments.
-  - `Snafu\Document\Trace` — `__construct(public array $frames, public bool $truncated)`, `jsonSerialize(): list<Frame>` returning the frames.
+  - `Errata\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, ?array $args = null, array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is emitted only when PHP reported arguments for the frame, so `args: []` is a reported empty list and an absent member means PHP did not report arguments.
+  - `Errata\Document\Trace` — `__construct(public array $frames, public bool $truncated)`, `jsonSerialize(): list<Frame>` returning the frames.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1286,13 +1286,13 @@ git commit -m "feat: relativize exception paths against the project directory"
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Frame;
-use Snafu\Document\SourceLine;
+use Errata\Document\Frame;
+use Errata\Document\SourceLine;
 
 #[CoversClass(Frame::class)]
 final class FrameTest extends TestCase
@@ -1359,13 +1359,13 @@ final class FrameTest extends TestCase
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Frame;
-use Snafu\Document\Trace;
+use Errata\Document\Frame;
+use Errata\Document\Trace;
 
 #[CoversClass(Trace::class)]
 final class TraceTest extends TestCase
@@ -1397,7 +1397,7 @@ final class TraceTest extends TestCase
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `vendor/bin/phpunit tests/Document/FrameTest.php tests/Document/TraceTest.php`
-Expected: FAIL — `Class "Snafu\Document\Frame" not found`.
+Expected: FAIL — `Class "Errata\Document\Frame" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1406,7 +1406,7 @@ Expected: FAIL — `Class "Snafu\Document\Frame" not found`.
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;
@@ -1478,7 +1478,7 @@ final readonly class Frame implements JsonSerializable
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;
@@ -1534,8 +1534,8 @@ git commit -m "feat: add frame and trace document types"
 - Test: `tests/Document/ProblemTest.php`
 
 **Interfaces:**
-- Consumes: `Snafu\Document\SourceLine` (Task 2), `Snafu\Document\Trace` (Task 5).
-- Produces: `Snafu\Document\Problem` —
+- Consumes: `Errata\Document\SourceLine` (Task 2), `Errata\Document\Trace` (Task 5).
+- Produces: `Errata\Document\Problem` —
   - `__construct(string $type, string $title, int $status, int $code, ?string $detail = null, ?string $file = null, ?int $line = null, array $source = [], ?Trace $trace = null, ?Problem $previous = null)`
   - `public static function minimal(Throwable $exception, int $status): self` — the status phrase, the short class name as `detail`, and the code.
   - `public static function development(Throwable $exception, int $status, string $file, int $line, array $source, Trace $trace, ?Problem $previous): self` — `minimal()` plus `detail` as `class: message`, origin, source window, trace, and cause.
@@ -1546,7 +1546,7 @@ git commit -m "feat: add frame and trace document types"
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
 use Exception;
 use LogicException;
@@ -1555,9 +1555,9 @@ use PDOException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\Document\SourceLine;
-use Snafu\Document\Trace;
+use Errata\Document\Problem;
+use Errata\Document\SourceLine;
+use Errata\Document\Trace;
 
 use function is_array;
 use function json_decode;
@@ -1748,7 +1748,7 @@ final class ProblemTest extends TestCase
         $pdo = new PDO('sqlite::memory:');
 
         try {
-            $pdo->query('select * from snafu_missing_table');
+            $pdo->query('select * from errata_missing_table');
         } catch (PDOException $exception) {
             return $exception->getCode();
         }
@@ -1761,14 +1761,14 @@ final class ProblemTest extends TestCase
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/Document/ProblemTest.php`
-Expected: FAIL — `Class "Snafu\Document\Problem" not found`.
+Expected: FAIL — `Class "Errata\Document\Problem" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup;
 use JsonSerializable;
@@ -1958,25 +1958,25 @@ git commit -m "feat: add the problem document type with both modes"
 - Test: `tests/Trace/TraceFactoryTest.php`
 
 **Interfaces:**
-- Consumes: `Snafu\Path\PathRelativizer` (Task 4), `Snafu\Trace\SourceContext` (Task 2), `Snafu\Trace\ArgumentSanitizer` (Task 3), `Snafu\Document\Frame` and `Snafu\Document\Trace` (Task 5).
-- Produces: `Snafu\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentSanitizer $arguments, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array, which already lists the frame nearest the throw first, so the first `$traceLimit` entries — the innermost frames — are kept. An entry without an `args` key (or with a non-array one) yields a frame with no `args` member; an empty `args` array is kept as `args: []`.
+- Consumes: `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentSanitizer` (Task 3), `Errata\Document\Frame` and `Errata\Document\Trace` (Task 5).
+- Produces: `Errata\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentSanitizer $arguments, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array, which already lists the frame nearest the throw first, so the first `$traceLimit` entries — the innermost frames — are kept. An entry without an `args` key (or with a non-array one) yields a frame with no `args` member; an empty `args` array is kept as `args: []`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
 use LogicException;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Trace;
-use Snafu\Path\PathRelativizer;
-use Snafu\Trace\ArgumentSanitizer;
-use Snafu\Trace\SourceContext;
-use Snafu\Trace\TraceFactory;
+use Errata\Document\Trace;
+use Errata\Path\PathRelativizer;
+use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\SourceContext;
+use Errata\Trace\TraceFactory;
 use stdClass;
 
 #[CoversClass(TraceFactory::class)]
@@ -2015,7 +2015,7 @@ final class TraceFactoryTest extends TestCase
                     'line' => 5,
                     'function' => 'inner',
                     'source' => [
-                        ['line' => 3, 'code' => 'function snafu_fixture_alpha(): void'],
+                        ['line' => 3, 'code' => 'function errata_fixture_alpha(): void'],
                         ['line' => 4, 'code' => '{'],
                         ['line' => 5, 'code' => '    $alpha = 1;'],
                         ['line' => 7, 'code' => '    $beta = 2;'],
@@ -2151,18 +2151,18 @@ final class TraceFactoryTest extends TestCase
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/Trace/TraceFactoryTest.php`
-Expected: FAIL — `Class "Snafu\Trace\TraceFactory" not found`.
+Expected: FAIL — `Class "Errata\Trace\TraceFactory" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Trace;
+namespace Errata\Trace;
 
-use Snafu\Document\Frame;
-use Snafu\Document\Trace;
-use Snafu\Path\PathRelativizer;
+use Errata\Document\Frame;
+use Errata\Document\Trace;
+use Errata\Path\PathRelativizer;
 
 /**
  * Assembles the trace section from PHP's raw trace array.
@@ -2292,27 +2292,27 @@ git commit -m "feat: assemble trace frames with source windows and arguments"
 - Test: `tests/ExceptionHandlerTest.php`
 
 **Interfaces:**
-- Consumes: `Snafu\Mode` (Task 1), `Snafu\Document\Problem` (Task 6), `Snafu\Path\PathRelativizer` (Task 4), `Snafu\Trace\SourceContext` (Task 2), `Snafu\Trace\ArgumentSanitizer` (Task 3), `Snafu\Trace\TraceFactory` (Task 7).
+- Consumes: `Errata\Mode` (Task 1), `Errata\Document\Problem` (Task 6), `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentSanitizer` (Task 3), `Errata\Trace\TraceFactory` (Task 7).
 - Produces:
-  - `Snafu\Http\StatusCodeInterface` — `getStatusCode(): int`.
-  - `Snafu\ExceptionHandler` — `__construct(Mode $mode, ?string $projectDir = null, int $traceLimit = 30)`, `handle(Throwable $exception): Problem`.
+  - `Errata\Http\StatusCodeInterface` — `getStatusCode(): int`.
+  - `Errata\ExceptionHandler` — `__construct(Mode $mode, ?string $projectDir = null, int $traceLimit = 30)`, `handle(Throwable $exception): Problem`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests;
+namespace Errata\Tests;
 
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\Document\Trace;
-use Snafu\Mode;
-use Snafu\ExceptionHandler;
-use Snafu\Http\StatusCodeInterface;
+use Errata\Document\Problem;
+use Errata\Document\Trace;
+use Errata\Mode;
+use Errata\ExceptionHandler;
+use Errata\Http\StatusCodeInterface;
 use Throwable;
 
 #[CoversClass(ExceptionHandler::class)]
@@ -2447,7 +2447,7 @@ final class ExceptionHandlerStatusFixture extends RuntimeException implements St
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/ExceptionHandlerTest.php`
-Expected: FAIL — `Class "Snafu\ExceptionHandler" not found`.
+Expected: FAIL — `Class "Errata\ExceptionHandler" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2456,7 +2456,7 @@ Expected: FAIL — `Class "Snafu\ExceptionHandler" not found`.
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Http;
+namespace Errata\Http;
 
 /**
  * Implemented by exceptions that carry their own HTTP status code.
@@ -2478,15 +2478,15 @@ interface StatusCodeInterface
 
 declare(strict_types=1);
 
-namespace Snafu;
+namespace Errata;
 
 use Override;
-use Snafu\Document\Problem;
-use Snafu\Http\StatusCodeInterface;
-use Snafu\Path\PathRelativizer;
-use Snafu\Trace\ArgumentSanitizer;
-use Snafu\Trace\SourceContext;
-use Snafu\Trace\TraceFactory;
+use Errata\Document\Problem;
+use Errata\Http\StatusCodeInterface;
+use Errata\Path\PathRelativizer;
+use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\SourceContext;
+use Errata\Trace\TraceFactory;
 use Throwable;
 
 /**
@@ -2590,15 +2590,15 @@ git commit -m "feat: map throwables to problem documents per mode"
 - Create: `tests/Fixtures/source/utf8_failure.php`
 
 **Interfaces:**
-- Consumes: `Snafu\ExceptionHandlerInterface` and `Snafu\ExceptionHandler` (Task 8), `Snafu\Http\StatusCodeInterface` (Task 8), `Snafu\Document\Problem` (Task 6), `Psr\Http\Message\ResponseFactoryInterface`, `Psr\Http\Server\MiddlewareInterface`, `Psr\Http\Server\RequestHandlerInterface`, `Psr\Log\LoggerInterface`, `Nyholm\Psr7\Factory\Psr17Factory` (test only).
-- Produces: `Snafu\Middleware\ExceptionMiddleware` — `__construct(ResponseFactoryInterface $responseFactory, ExceptionHandlerInterface $handler, ?LoggerInterface $logger = null, string $logLevel = LogLevel::ERROR)`, `process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface` returning the downstream response untouched when nothing is thrown.
+- Consumes: `Errata\ExceptionHandlerInterface` and `Errata\ExceptionHandler` (Task 8), `Errata\Http\StatusCodeInterface` (Task 8), `Errata\Document\Problem` (Task 6), `Psr\Http\Message\ResponseFactoryInterface`, `Psr\Http\Server\MiddlewareInterface`, `Psr\Http\Server\RequestHandlerInterface`, `Psr\Log\LoggerInterface`, `Nyholm\Psr7\Factory\Psr17Factory` (test only).
+- Produces: `Errata\Middleware\ExceptionMiddleware` — `__construct(ResponseFactoryInterface $responseFactory, ExceptionHandlerInterface $handler, ?LoggerInterface $logger = null, string $logLevel = LogLevel::ERROR)`, `process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface` returning the downstream response untouched when nothing is thrown.
 
 - [ ] **Step 1: Create the invalid-UTF-8 fixture**
 
 The file must contain raw bytes that are not valid UTF-8, on the line `±2` above the `throw`, so the origin window includes it:
 
 ```bash
-printf '<?php declare(strict_types=1);\n\nfunction snafu_fixture_utf8_failure(): never\n{\n    // \xff\xfe invalid utf8 \x80\n    throw new RuntimeException("invalid utf8 fixture");\n}\n' > tests/Fixtures/source/utf8_failure.php
+printf '<?php declare(strict_types=1);\n\nfunction errata_fixture_utf8_failure(): never\n{\n    // \xff\xfe invalid utf8 \x80\n    throw new RuntimeException("invalid utf8 fixture");\n}\n' > tests/Fixtures/source/utf8_failure.php
 php -r 'var_dump(mb_check_encoding(file_get_contents("tests/Fixtures/source/utf8_failure.php"), "UTF-8"));'
 ```
 
@@ -2609,7 +2609,7 @@ Expected: `bool(false)` — the file is deliberately not valid UTF-8.
 ```php
 <?php declare(strict_types=1);
 
-namespace Snafu\Tests\Middleware;
+namespace Errata\Tests\Middleware;
 
 use Error;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -2623,12 +2623,12 @@ use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\Mode;
-use Snafu\ExceptionHandler;
-use Snafu\ExceptionHandlerInterface;
-use Snafu\Http\StatusCodeInterface;
-use Snafu\Middleware\ExceptionMiddleware;
+use Errata\Document\Problem;
+use Errata\Mode;
+use Errata\ExceptionHandler;
+use Errata\ExceptionHandlerInterface;
+use Errata\Http\StatusCodeInterface;
+use Errata\Middleware\ExceptionMiddleware;
 use Stringable;
 use Throwable;
 
@@ -2647,7 +2647,7 @@ final class ExceptionMiddlewareTest extends TestCase
     {
         $this->factory = new Psr17Factory();
         $this->root = dirname(__DIR__, 2);
-        $this->errorLog = (string) tempnam(sys_get_temp_dir(), 'snafu');
+        $this->errorLog = (string) tempnam(sys_get_temp_dir(), 'errata');
         ini_set('error_log', $this->errorLog);
     }
 
@@ -2824,7 +2824,7 @@ final class ExceptionMiddlewareTest extends TestCase
     private function utf8Failure(): Throwable
     {
         try {
-            snafu_fixture_utf8_failure();
+            errata_fixture_utf8_failure();
         } catch (Throwable $exception) {
             return $exception;
         }
@@ -2940,7 +2940,7 @@ final class MiddlewareThrowingHandler implements ExceptionHandlerInterface
 - [ ] **Step 3: Run the test to verify it fails**
 
 Run: `vendor/bin/phpunit tests/Middleware/ExceptionMiddlewareTest.php`
-Expected: FAIL — `Class "Snafu\Middleware\ExceptionMiddleware" not found`.
+Expected: FAIL — `Class "Errata\Middleware\ExceptionMiddleware" not found`.
 
 - [ ] **Step 4: Write the implementation**
 
@@ -2949,7 +2949,7 @@ Expected: FAIL — `Class "Snafu\Middleware\ExceptionMiddleware" not found`.
 
 declare(strict_types=1);
 
-namespace Snafu\Middleware;
+namespace Errata\Middleware;
 
 use Override;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -2959,8 +2959,8 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use Snafu\Document\Problem;
-use Snafu\ExceptionHandlerInterface;
+use Errata\Document\Problem;
+use Errata\ExceptionHandlerInterface;
 use Throwable;
 
 use function error_log;
@@ -3015,7 +3015,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
             $problem = $this->handler->handle($exception);
         } catch (Throwable $failure) {
             error_log(sprintf(
-                'snafu: handler failed while reporting %s: %s',
+                'errata: handler failed while reporting %s: %s',
                 $exception::class,
                 $failure->getMessage(),
             ));
@@ -3048,7 +3048,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
             ]);
         } catch (Throwable $failure) {
             error_log(sprintf(
-                'snafu: logger failed while reporting %s: %s',
+                'errata: logger failed while reporting %s: %s',
                 $exception::class,
                 $failure->getMessage(),
             ));
@@ -3069,7 +3069,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
                 | JSON_THROW_ON_ERROR,
             );
         } catch (Throwable $failure) {
-            error_log(sprintf('snafu: could not encode the problem document: %s', $failure->getMessage()));
+            error_log(sprintf('errata: could not encode the problem document: %s', $failure->getMessage()));
 
             return [500, self::FALLBACK_BODY];
         }
@@ -3113,7 +3113,7 @@ git commit -m "feat: answer uncaught throwables with a problem document"
 - [ ] **Step 1: Replace the README**
 
 ```markdown
-# Snafu
+# Errata
 
 ♞♘ Exceptional error handler for JSON APIs.
 
@@ -3123,16 +3123,16 @@ document, logs it through PSR-3, and never leaks production internals.
 ## Installation
 
 ```sh
-composer require snafu/snafu
+composer require errata/errata
 ```
 
 ## Usage
 
 ```php
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Snafu\Mode;
-use Snafu\ExceptionHandler;
-use Snafu\Middleware\ExceptionMiddleware;
+use Errata\Mode;
+use Errata\ExceptionHandler;
+use Errata\Middleware\ExceptionMiddleware;
 
 $middleware = new ExceptionMiddleware(
     new Psr17Factory(),
@@ -3199,10 +3199,10 @@ see frames with no `args` member.
 
 ## Custom status codes
 
-Implement `Snafu\Http\StatusCodeInterface` to control the HTTP status:
+Implement `Errata\Http\StatusCodeInterface` to control the HTTP status:
 
 ```php
-use Snafu\Http\StatusCodeInterface;
+use Errata\Http\StatusCodeInterface;
 
 final class NotFound extends RuntimeException implements StatusCodeInterface
 {
@@ -3280,21 +3280,21 @@ Expected: PASS for check, lint, analyze, and test. Lint warnings are acceptable 
 
 - [ ] **Step 5: Prove it end to end with a throwaway script**
 
-Write `/tmp/snafu-smoke.php` (outside the repository, so there is nothing to clean up):
+Write `/tmp/errata-smoke.php` (outside the repository, so there is nothing to clean up):
 
 ```php
 <?php declare(strict_types=1);
 
-require '/Users/woodygilk/Code/joust/snafu/vendor/autoload.php';
+require '/Users/woodygilk/Code/joust/errata/vendor/autoload.php';
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Snafu\Mode;
-use Snafu\ExceptionHandler;
-use Snafu\Middleware\ExceptionMiddleware;
+use Errata\Mode;
+use Errata\ExceptionHandler;
+use Errata\Middleware\ExceptionMiddleware;
 
 final class Boom
 {
@@ -3330,11 +3330,11 @@ foreach ([Mode::Minimal, Mode::Full] as $mode) {
 }
 ```
 
-Run: `php /tmp/snafu-smoke.php`
+Run: `php /tmp/errata-smoke.php`
 
 Expected: two bodies. Minimal prints exactly
 `{"type":"about:blank","title":"Internal Server Error","status":500,"code":42,"detail":"RuntimeException"}`.
-Full prints the same keys plus `file` (`/tmp/snafu-smoke.php`
+Full prints the same keys plus `file` (`/tmp/errata-smoke.php`
 is outside the project directory, so it stays absolute — that is the
 documented behaviour), `line`, `source` with the `throw` line, and `trace`
 whose innermost frame is the call to `Boom::explode`, with `args`

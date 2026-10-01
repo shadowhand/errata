@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests;
+namespace Errata\Tests;
 
+use Errata\Mode;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\WithEnvironmentVariable;
 use PHPUnit\Framework\TestCase;
-use Snafu\Mode;
 
 #[CoversClass(Mode::class)]
 final class ModeTest extends TestCase

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Middleware;
+namespace Errata\Tests\Middleware;
 
 use Override;
 use Psr\Log\AbstractLogger;

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
+use Errata\Document\Frame;
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Frame;
 
 use function is_array;
 use function json_decode;

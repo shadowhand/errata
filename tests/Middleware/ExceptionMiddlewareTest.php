@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Middleware;
+namespace Errata\Tests\Middleware;
 
+use Errata\ExceptionHandler;
+use Errata\Middleware\ExceptionMiddleware;
+use Errata\Mode;
 use Error;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\ServerRequest;
@@ -16,19 +19,16 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use RuntimeException;
-use Snafu\ExceptionHandler;
-use Snafu\Middleware\ExceptionMiddleware;
-use Snafu\Mode;
 use Throwable;
 
 use function array_keys;
 use function dirname;
+use function errata_fixture_utf8_failure;
 use function file_get_contents;
 use function file_put_contents;
 use function is_dir;
 use function json_decode;
 use function mkdir;
-use function snafu_fixture_utf8_failure;
 
 require_once __DIR__ . '/../Fixtures/source/utf8_failure.php';
 
@@ -269,7 +269,7 @@ final class ExceptionMiddlewareTest extends TestCase
     {
         try {
             // @mago-ignore analysis:non-existent-function
-            snafu_fixture_utf8_failure();
+            errata_fixture_utf8_failure();
         } catch (Throwable $exception) {
             return $exception;
         }

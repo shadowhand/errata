@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Path;
+namespace Errata\Path;
 
 use Composer\InstalledVersions;
 

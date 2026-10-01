@@ -1,6 +1,6 @@
-# Snafu
+# Errata
 
-♞♘ Exceptional error handler for JSON APIs.
+📜 Exceptional error handler for JSON APIs.
 
 Turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it through PSR-3, and
 never leaks production internals.
@@ -8,19 +8,19 @@ never leaks production internals.
 ## Installation
 
 ```sh
-composer require snafu/snafu
+composer require errata/errata
 ```
 
 ## Usage
 
 ```php
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Snafu\Mode;
-use Snafu\ExceptionHandler;
-use Snafu\Middleware\ExceptionMiddleware;
+use Errata\Mode;
+use Errata\ExceptionHandler;
+use Errata\Middleware\ExceptionMiddleware;
 
 $middleware = new ExceptionMiddleware(
-    new Psr17Factory(),
+    new Psr17Factory(), // any PSR-17 ResponseFactoryInterface may be used
     new ExceptionHandler(Mode::fromEnv()),
     $logger,   // optional PSR-3 logger; omit to disable logging
 );
@@ -74,10 +74,10 @@ running full mode with a production `php.ini` will see frames with no `args` mem
 
 ## Custom status codes
 
-Implement `Snafu\Http\StatusCodeInterface` to control the HTTP status:
+Implement `Errata\Http\StatusCodeInterface` to control the HTTP status:
 
 ```php
-use Snafu\Http\StatusCodeInterface;
+use Errata\Http\StatusCodeInterface;
 
 final class NotFound extends RuntimeException implements StatusCodeInterface
 {

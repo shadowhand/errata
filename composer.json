@@ -1,5 +1,5 @@
 {
-    "name": "snafu/snafu",
+    "name": "errata/errata",
     "description": "Exceptional error handler for JSON APIs",
     "license": "MIT",
     "type": "library",
@@ -28,12 +28,12 @@
     "prefer-stable": true,
     "autoload": {
         "psr-4": {
-            "Snafu\\": "src/"
+            "Errata\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Snafu\\Tests\\": "tests/"
+            "Errata\\Tests\\": "tests/"
         }
     },
     "config": {

@@ -1,4 +1,4 @@
-# Snafu — exception handler for JSON APIs
+# Errata — exception handler for JSON APIs
 
 Date: 2026-09-30
 Status: approved in brainstorming; pending review of this document
@@ -160,7 +160,7 @@ enum Mode: string
     public static function fromEnv(): self;
 }
 
-namespace Snafu\Http;
+namespace Errata\Http;
 
 /** @api */
 interface StatusCodeInterface
@@ -575,7 +575,7 @@ non-Composer autoloader) it falls back to `getcwd()`.
 
 Normalization is mandatory: Composer returns unnormalized paths.
 Verified on this machine, `getRootPackage()['install_path']` is
-`/Users/…/snafu/vendor/composer/../../`. `realpath()` is applied first;
+`/Users/…/errata/vendor/composer/../../`. `realpath()` is applied first;
 if it returns `false` (path does not exist) a lexical normalization
 collapses `.` and `..` segments.
 

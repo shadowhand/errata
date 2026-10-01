@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Demo;
+namespace Errata\Demo;
 
+use Errata\Mode;
 use RuntimeException;
-use Snafu\Mode;
 
 require_once __DIR__ . '/bootstrap.php';
 

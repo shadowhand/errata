@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Middleware;
+namespace Errata\Tests\Middleware;
 
+use Errata\Document\Problem;
+use Errata\ExceptionHandlerInterface;
 use Override;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\ExceptionHandlerInterface;
 use Throwable;
 
 final class MiddlewareThrowingHandler implements ExceptionHandlerInterface

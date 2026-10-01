@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Demo;
+namespace Errata\Demo;
 
 use Closure;
+use Errata\ExceptionHandler;
+use Errata\Middleware\ExceptionMiddleware;
+use Errata\Mode;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Override;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Snafu\ExceptionHandler;
-use Snafu\Middleware\ExceptionMiddleware;
-use Snafu\Mode;
 
 use function dirname;
 use function header;

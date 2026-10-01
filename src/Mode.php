@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu;
+namespace Errata;
 
 use function filter_var;
 use function getenv;

@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
+use Errata\Document\SanitizedMap;
+use Errata\Document\SanitizedObject;
+use Errata\Trace\ArgumentSanitizer;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SensitiveParameterValue;
-use Snafu\Document\SanitizedMap;
-use Snafu\Document\SanitizedObject;
-use Snafu\Trace\ArgumentSanitizer;
 use stdClass;
 
 use function acos;
@@ -169,7 +169,7 @@ final class ArgumentSanitizerTest extends TestCase
     {
         $this->assertSame('Closure', $this->sanitizer->sanitize(static fn(): int => 1));
         $this->assertSame(
-            'Snafu\Tests\Trace\ArgumentSanitizerEnum::Second',
+            'Errata\Tests\Trace\ArgumentSanitizerEnum::Second',
             $this->sanitizer->sanitize(ArgumentSanitizerEnum::Second),
         );
     }

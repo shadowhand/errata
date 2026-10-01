@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Trace;
+namespace Errata\Trace;
 
-use Snafu\Document\Frame;
-use Snafu\Document\Trace;
-use Snafu\Path\PathRelativizer;
+use Errata\Document\Frame;
+use Errata\Document\Trace;
+use Errata\Path\PathRelativizer;
 
 use function array_key_exists;
 use function array_map;

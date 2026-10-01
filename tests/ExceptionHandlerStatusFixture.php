@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests;
+namespace Errata\Tests;
 
+use Errata\Http\StatusCodeInterface;
 use Override;
 use RuntimeException;
-use Snafu\Http\StatusCodeInterface;
 
 final class ExceptionHandlerStatusFixture extends RuntimeException implements StatusCodeInterface
 {

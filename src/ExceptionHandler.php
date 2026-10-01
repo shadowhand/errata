@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Snafu;
+namespace Errata;
 
+use Errata\Document\Problem;
+use Errata\Http\StatusCodeInterface;
+use Errata\Path\PathRelativizer;
+use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\SourceContext;
+use Errata\Trace\TraceFactory;
 use Override;
-use Snafu\Document\Problem;
-use Snafu\Http\StatusCodeInterface;
-use Snafu\Path\PathRelativizer;
-use Snafu\Trace\ArgumentSanitizer;
-use Snafu\Trace\SourceContext;
-use Snafu\Trace\TraceFactory;
 use Throwable;
 
 /**

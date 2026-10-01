@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Document;
+namespace Errata\Document;
 
 use JsonSerializable;
 use Override;

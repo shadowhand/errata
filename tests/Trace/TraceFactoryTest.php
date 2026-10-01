@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
+use Errata\Document\Trace;
+use Errata\Path\PathRelativizer;
+use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\SourceContext;
+use Errata\Trace\TraceFactory;
 use LogicException;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\Trace;
-use Snafu\Path\PathRelativizer;
-use Snafu\Trace\ArgumentSanitizer;
-use Snafu\Trace\SourceContext;
-use Snafu\Trace\TraceFactory;
 use stdClass;
 
 use function array_column;
@@ -86,7 +86,7 @@ final class TraceFactoryTest extends TestCase
             [" \t \r\n\t  \r\n", 2, ''],
             ["    \$x = 1;  \n", 1, '$x = 1;'],
         ] as [$contents, $line, $source]) {
-            $path = sys_get_temp_dir() . '/snafu-trace-source-' . bin2hex(random_bytes(8)) . '.php';
+            $path = sys_get_temp_dir() . '/errata-trace-source-' . bin2hex(random_bytes(8)) . '.php';
             file_put_contents(filename: $path, data: $contents);
 
             try {

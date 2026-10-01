@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Trace;
+namespace Errata\Trace;
 
 use Closure;
+use Errata\Document\SanitizedMap;
+use Errata\Document\SanitizedObject;
 use SensitiveParameterValue;
-use Snafu\Document\SanitizedMap;
-use Snafu\Document\SanitizedObject;
 use SplObjectStorage;
 use UnitEnum;
 

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Snafu;
+namespace Errata;
 
-use Snafu\Document\Problem;
+use Errata\Document\Problem;
 use Throwable;
 
 /**

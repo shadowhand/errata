@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
 use Override;
 use RuntimeException;

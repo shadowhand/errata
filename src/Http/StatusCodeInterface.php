@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Http;
+namespace Errata\Http;
 
 /**
  * Implemented by exceptions that carry their own HTTP status code.

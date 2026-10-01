@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Trace;
+namespace Errata\Tests\Trace;
 
+use Errata\Trace\SourceContext;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Trace\SourceContext;
 
 use function bin2hex;
 use function file_put_contents;
@@ -53,7 +53,7 @@ final class SourceContextTest extends TestCase
 
     public function testItReturnsNullForAMissingFile(): void
     {
-        $this->assertNull($this->context->line('/nonexistent/snafu/window.php', 1));
+        $this->assertNull($this->context->line('/nonexistent/errata/window.php', 1));
     }
 
     public function testItReturnsNullForADirectory(): void
@@ -78,7 +78,7 @@ final class SourceContextTest extends TestCase
 
     public function testItCachesFileContentsAcrossCalls(): void
     {
-        $path = sys_get_temp_dir() . '/snafu-line-' . bin2hex(random_bytes(8)) . '.php';
+        $path = sys_get_temp_dir() . '/errata-line-' . bin2hex(random_bytes(8)) . '.php';
 
         try {
             file_put_contents(filename: $path, data: "<?php\n\n\$first = 1;\n");
@@ -99,7 +99,7 @@ final class SourceContextTest extends TestCase
 
     private function lineFromContents(string $contents, int $line): ?string
     {
-        $path = sys_get_temp_dir() . '/snafu-line-' . bin2hex(random_bytes(8)) . '.php';
+        $path = sys_get_temp_dir() . '/errata-line-' . bin2hex(random_bytes(8)) . '.php';
 
         try {
             file_put_contents(filename: $path, data: $contents);

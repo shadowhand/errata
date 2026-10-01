@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
+use Errata\Document\SanitizedObject;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SanitizedObject;
 
 #[CoversClass(SanitizedObject::class)]
 final class SanitizedObjectTest extends TestCase

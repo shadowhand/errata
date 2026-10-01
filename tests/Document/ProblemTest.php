@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests\Document;
+namespace Errata\Tests\Document;
 
+use Errata\Document\Problem;
+use Errata\Document\Trace;
 use Exception;
 use LogicException;
 use PDO;
@@ -11,8 +13,6 @@ use PDOException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\Document\Trace;
 
 use function is_array;
 use function json_decode;
@@ -236,7 +236,7 @@ final class ProblemTest extends TestCase
         $pdo = new PDO('sqlite::memory:');
 
         try {
-            $pdo->query('select * from snafu_missing_table');
+            $pdo->query('select * from errata_missing_table');
         } catch (PDOException $exception) {
             return $exception->getCode();
         }

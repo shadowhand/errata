@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Demo;
+namespace Errata\Demo;
 
 use function header;
 use function http_response_code;
@@ -41,7 +41,7 @@ echo <<<'HTML'
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Snafu demos</title>
+        <title>Errata demos</title>
         <style>
             * { box-sizing: border-box; }
             body {
@@ -82,7 +82,7 @@ echo <<<'HTML'
     </head>
     <body>
         <main>
-            <h1>Snafu demos</h1>
+            <h1>Errata demos</h1>
             <p>Choose a demo to view its JSON error response.</p>
             <nav aria-label="Demos">
                 <a href="/minimal">minimal</a>

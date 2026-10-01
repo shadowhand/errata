@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Middleware;
+namespace Errata\Middleware;
 
+use Errata\Document\Problem;
+use Errata\ExceptionHandlerInterface;
 use Override;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -12,8 +14,6 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use Snafu\Document\Problem;
-use Snafu\ExceptionHandlerInterface;
 use Throwable;
 
 use function error_log;
@@ -68,7 +68,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
             $problem = $this->handler->handle($exception);
         } catch (Throwable $failure) {
             error_log(sprintf(
-                'snafu: handler failed while reporting %s: %s',
+                'errata: handler failed while reporting %s: %s',
                 $exception::class,
                 $failure->getMessage(),
             ));
@@ -101,7 +101,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
             ]);
         } catch (Throwable $failure) {
             error_log(sprintf(
-                'snafu: logger failed while reporting %s: %s',
+                'errata: logger failed while reporting %s: %s',
                 $exception::class,
                 $failure->getMessage(),
             ));
@@ -122,7 +122,7 @@ final class ExceptionMiddleware implements MiddlewareInterface
                 | JSON_THROW_ON_ERROR,
             );
         } catch (Throwable $failure) {
-            error_log(sprintf('snafu: could not encode the problem document: %s', $failure->getMessage()));
+            error_log(sprintf('errata: could not encode the problem document: %s', $failure->getMessage()));
 
             return [500, self::FALLBACK_BODY];
         }

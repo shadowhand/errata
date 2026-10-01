@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Snafu\Tests;
+namespace Errata\Tests;
 
+use Errata\Document\Problem;
+use Errata\Document\Trace;
+use Errata\ExceptionHandler;
+use Errata\Mode;
 use LogicException;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use Snafu\Document\Problem;
-use Snafu\Document\Trace;
-use Snafu\ExceptionHandler;
-use Snafu\Mode;
 
 use function dirname;
 use function json_decode;
