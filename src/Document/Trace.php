@@ -10,9 +10,6 @@ use Override;
 /**
  * The trace section of a problem document.
  *
- * Serializes to the frame list, so a `Trace` is exactly the value of the
- * document's `trace` member.
- *
  * @api
  */
 final readonly class Trace implements JsonSerializable

@@ -77,7 +77,7 @@ final class ProblemTest extends TestCase
     {
         $previous = Problem::minimal(new RuntimeException('cause'), 500);
         $source = '    throw new RuntimeException();';
-        $problem = Problem::development(
+        $problem = Problem::full(
             exception: new RuntimeException('boom', 3),
             status: 422,
             file: 'src/Foo.php',
@@ -114,7 +114,7 @@ final class ProblemTest extends TestCase
 
     public function testDevelopmentOmitsANullSourceAndANullPrevious(): void
     {
-        $problem = Problem::development(
+        $problem = Problem::full(
             exception: new RuntimeException('boom'),
             status: 500,
             file: 'src/Foo.php',
@@ -129,12 +129,12 @@ final class ProblemTest extends TestCase
         $this->assertNull($problem->source);
         $this->assertArrayNotHasKey('source', $serialized);
         $this->assertArrayNotHasKey('previous', $serialized);
-        $this->assertArrayNotHasKey('traceTruncated', $serialized);
+        $this->assertArrayNotHasKey('truncated', $serialized);
     }
 
     public function testDevelopmentIncludesAnEmptySourceLine(): void
     {
-        $problem = Problem::development(
+        $problem = Problem::full(
             exception: new RuntimeException('boom'),
             status: 500,
             file: 'src/Foo.php',
@@ -162,7 +162,7 @@ final class ProblemTest extends TestCase
 
     public function testDevelopmentFlagsATruncatedTrace(): void
     {
-        $problem = Problem::development(
+        $problem = Problem::full(
             exception: new RuntimeException('boom'),
             status: 500,
             file: 'src/Foo.php',
@@ -172,7 +172,7 @@ final class ProblemTest extends TestCase
             previous: null,
         );
 
-        $this->assertTrue($problem->jsonSerialize()['traceTruncated'] ?? false);
+        $this->assertTrue($problem->jsonSerialize()['truncated'] ?? false);
     }
 
     public function testItCanBeConstructedDirectly(): void

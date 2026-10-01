@@ -25,9 +25,7 @@ enum Mode: string
     /**
      * Detects the mode from the process environment.
      *
-     * Reads `APP_ENV`, then `APP_DEBUG`. Unrecognised or absent values
-     * fall back to Minimal, because a mode that leaks internals must
-     * never be selected by accident.
+     * Checks both APP_ENV and APP_DEBUG to determine the appropriate mode.
      */
     public static function fromEnv(): self
     {
@@ -37,6 +35,10 @@ enum Mode: string
             return self::Full;
         }
 
-        return filter_var(getenv('APP_DEBUG'), FILTER_VALIDATE_BOOLEAN) ? self::Full : self::Minimal;
+        if (filter_var(getenv('APP_DEBUG'), FILTER_VALIDATE_BOOLEAN)) {
+            return self::Full;
+        }
+
+        return self::Minimal;
     }
 }

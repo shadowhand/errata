@@ -1539,7 +1539,7 @@ git commit -m "feat: add frame and trace document types"
   - `__construct(string $type, string $title, int $status, int $code, ?string $detail = null, ?string $file = null, ?int $line = null, array $source = [], ?Trace $trace = null, ?Problem $previous = null)`
   - `public static function minimal(Throwable $exception, int $status): self` — the status phrase, the short class name as `detail`, and the code.
   - `public static function development(Throwable $exception, int $status, string $file, int $line, array $source, Trace $trace, ?Problem $previous): self` — `minimal()` plus `detail` as `class: message`, origin, source window, trace, and cause.
-  - `jsonSerialize(): array` emitting `type, title, status, code, detail, file, line, source, trace, traceTruncated, previous`, omitting null/false members and empty `source`.
+  - `jsonSerialize(): array` emitting `type, title, status, code, detail, file, line, source, trace, truncated, previous`, omitting null/false members and empty `source`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1670,7 +1670,7 @@ final class ProblemTest extends TestCase
 
         $this->assertArrayNotHasKey('source', $serialized);
         $this->assertArrayNotHasKey('previous', $serialized);
-        $this->assertArrayNotHasKey('traceTruncated', $serialized);
+        $this->assertArrayNotHasKey('truncated', $serialized);
     }
 
     public function testDevelopmentFlagsATruncatedTrace(): void
@@ -1685,7 +1685,7 @@ final class ProblemTest extends TestCase
             previous: null,
         );
 
-        $this->assertTrue($problem->jsonSerialize()['traceTruncated'] ?? false);
+        $this->assertTrue($problem->jsonSerialize()['truncated'] ?? false);
     }
 
     public function testItCanBeConstructedDirectly(): void
@@ -1886,7 +1886,7 @@ final readonly class Problem implements JsonSerializable
             $document['trace'] = $this->trace;
 
             if ($this->trace->truncated) {
-                $document['traceTruncated'] = true;
+                $document['truncated'] = true;
             }
         }
 
@@ -2359,7 +2359,7 @@ final class ExceptionHandlerTest extends TestCase
         $this->assertIsInt($problem->line);
         $this->assertNotSame([], $problem->source);
         $this->assertInstanceOf(Trace::class, $problem->trace);
-        $this->assertStringNotContainsString('traceTruncated', (string) json_encode($problem));
+        $this->assertStringNotContainsString('truncated', (string) json_encode($problem));
         $this->assertNull($problem->previous);
     }
 
@@ -3182,7 +3182,7 @@ The exception's origin and every frame carry a five-line source window
 (the reported line ±2), clamped to the file, with blank lines removed and
 original line numbers preserved. Traces are capped at 30 frames
 (`traceLimit`), keeping the frames nearest the throw; a capped trace is
-flagged with `traceTruncated`.
+flagged with `truncated`.
 
 Frame arguments are included, truncated to depth 5, 50 items, and 500
 bytes per string. Objects are reduced to a class name plus at most 50

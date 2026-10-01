@@ -24,6 +24,7 @@ use function is_array;
 use function json_decode;
 use function json_encode;
 use function random_bytes;
+use function realpath;
 use function sys_get_temp_dir;
 use function unlink;
 
@@ -86,7 +87,8 @@ final class TraceFactoryTest extends TestCase
             [" \t \r\n\t  \r\n", 2, ''],
             ["    \$x = 1;  \n", 1, '$x = 1;'],
         ] as [$contents, $line, $source]) {
-            $path = sys_get_temp_dir() . '/errata-trace-source-' . bin2hex(random_bytes(8)) . '.php';
+            // @mago-expect analysis:possibly-false-operand
+            $path = realpath(sys_get_temp_dir()) . '/errata-trace-source-' . bin2hex(random_bytes(8)) . '.php';
             file_put_contents(filename: $path, data: $contents);
 
             try {

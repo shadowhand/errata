@@ -69,7 +69,7 @@ final class ExceptionHandlerTest extends TestCase
         $this->assertArrayHasKey('source', $document);
         $this->assertSame($problem->source, $document['source']);
         $this->assertInstanceOf(Trace::class, $problem->trace);
-        $this->assertStringNotContainsString('traceTruncated', (string) json_encode($problem));
+        $this->assertStringNotContainsString('truncated', (string) json_encode($problem));
         $this->assertNull($problem->previous);
     }
 

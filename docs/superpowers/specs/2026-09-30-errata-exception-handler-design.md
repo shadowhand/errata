@@ -313,14 +313,14 @@ Serialization rules:
 
 - `Problem::jsonSerialize()` emits members in this order:
   `type`, `title`, `status`, `code`, `detail`, `file`, `line`, `source`,
-  `trace`, `traceTruncated`, `previous`. `title` is the status phrase
+  `trace`, `truncated`, `previous`. `title` is the status phrase
   (from `codeinc/http-reason-phrase-lookup`'s
   `HttpReasonPhraseLookup::getReasonPhrase()`) and `detail` the exception
   identity (short class name in minimal,
   `class: message` in full). It omits every member whose value is `null`
   or `false`, including `source` when it is `null`.
   `trace` is emitted as the frame list (`$this->trace` serializes to it);
-  `traceTruncated` is emitted only when `$this->trace->truncated` is
+  `truncated` is emitted only when `$this->trace->truncated` is
   `true`, so `Problem` holds no duplicated truncation flag.
 - `Frame::jsonSerialize()` omits null members, including a null `args`.
   `args` is emitted only when PHP reported arguments for the frame, so
@@ -494,7 +494,7 @@ Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 PHP already lists the frame nearest the throw first, so `trace[0]` is
 that frame. `traceLimit` keeps the innermost N frames; dropping any
 frame sets `Trace::$truncated`, which `Problem` reports as
-`traceTruncated: true`.
+`truncated: true`.
 
 ### Source lines
 
@@ -693,7 +693,7 @@ returning `false`.
     the project directory — still carrying its `source` line.
   - Document DTOs: each `jsonSerialize()` shape, member ordering and
     omission rules, null `source` omitted but blank source lines retained,
-    `traceTruncated` present only when truncated, and
+    `truncated` present only when truncated, and
     `SanitizedMap`/`SanitizedObject` payload shapes.
   - `ExceptionHandler`: both modes, the status interface in and out of
     range, and chained exceptions.

@@ -18,26 +18,20 @@ use Throwable;
  *
  * @api
  */
-final class ExceptionHandler implements ExceptionHandlerInterface
+final readonly class ExceptionHandler implements ExceptionHandlerInterface
 {
     private const int DEFAULT_TRACE_LIMIT = 30;
 
-    private readonly PathRelativizer $relativizer;
+    private PathRelativizer $relativizer;
+    private SourceContext $source;
+    private TraceFactory $trace;
 
-    private readonly SourceContext $source;
-
-    private readonly TraceFactory $trace;
-
-    /**
-     * A negative cap is clamped rather than trusted: `array_slice()`
-     * treats a negative length as a count from the end, so it cannot
-     * mean "at most N frames".
-     */
     public function __construct(
-        private readonly Mode $mode,
+        private Mode $mode,
         ?string $projectDir = null,
         int $traceLimit = self::DEFAULT_TRACE_LIMIT,
     ) {
+        // Negative values MUST be clamped, otherwise array_slice() will count from the end.
         if ($traceLimit < 0) {
             $traceLimit = 0;
         }
@@ -61,7 +55,7 @@ final class ExceptionHandler implements ExceptionHandlerInterface
         /** @var list<array<string, mixed>> $trace */
         $trace = $exception->getTrace();
 
-        return Problem::development(
+        return Problem::full(
             exception: $exception,
             status: $status,
             file: $this->relativizer->relativize($exception->getFile()),

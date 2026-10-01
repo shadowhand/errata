@@ -25,24 +25,6 @@ final readonly class Problem implements JsonSerializable
      */
     private const string TYPE = 'about:blank';
 
-    // @mago-ignore lint:excessive-parameter-list
-    public function __construct(
-        public string $type,
-        public string $title,
-        public int $status,
-        public int $code,
-        public ?string $detail = null,
-        public ?string $file = null,
-        public ?int $line = null,
-        public ?string $source = null,
-        public ?Trace $trace = null,
-        public ?Problem $previous = null,
-    ) {}
-
-    /**
-     * The minimal document: the status phrase, the short class name as
-     * `detail`, and the code, nothing else.
-     */
     public static function minimal(Throwable $exception, int $status): self
     {
         return new self(
@@ -54,15 +36,8 @@ final readonly class Problem implements JsonSerializable
         );
     }
 
-    /**
-     * The full document: everything `minimal()` carries, plus `detail`
-     * as `class: message`, the origin, the source line, the trace,
-     * and the cause.
-     *
-     *
-     * @mago-ignore lint:excessive-parameter-list
-     */
-    public static function development(
+    // @mago-ignore lint:excessive-parameter-list
+    public static function full(
         Throwable $exception,
         int $status,
         string $file,
@@ -84,6 +59,20 @@ final readonly class Problem implements JsonSerializable
             previous: $previous,
         );
     }
+
+    // @mago-ignore lint:excessive-parameter-list
+    public function __construct(
+        public string $type,
+        public string $title,
+        public int $status,
+        public int $code,
+        public ?string $detail = null,
+        public ?string $file = null,
+        public ?int $line = null,
+        public ?string $source = null,
+        public ?Trace $trace = null,
+        public ?Problem $previous = null,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -118,7 +107,7 @@ final readonly class Problem implements JsonSerializable
             $document['trace'] = $this->trace;
 
             if ($this->trace->truncated) {
-                $document['traceTruncated'] = true;
+                $document['truncated'] = true;
             }
         }
 
@@ -129,39 +118,26 @@ final readonly class Problem implements JsonSerializable
         return $document;
     }
 
-    /**
-     * The reason phrase for `$status`, from
-     * `codeinc/http-reason-phrase-lookup`. A status with no registered
-     * phrase falls back to the code itself, so the title is never empty.
-     */
     private static function title(int $status): string
     {
         return HttpReasonPhraseLookup::getReasonPhrase($status) ?? (string) $status;
     }
 
-    /**
-     * The dev-mode exception identity: the short class name, then the
-     * message, always both.
-     */
     private static function detail(Throwable $exception): string
     {
         return self::shortClass($exception) . ': ' . $exception->getMessage();
     }
 
-    /**
-     * The unqualified class name, truncated at the NUL byte that an
-     * anonymous class carries before its origin path.
-     */
     private static function shortClass(Throwable $exception): string
     {
         $class = $exception::class;
-        $nul = strpos(haystack: $class, needle: "\0");
+        $nul = strpos($class, needle: "\0");
 
         if ($nul !== false) {
-            $class = substr(string: $class, offset: 0, length: $nul);
+            $class = substr($class, offset: 0, length: $nul);
         }
 
-        $position = strrpos(haystack: $class, needle: '\\');
+        $position = strrpos($class, needle: '\\');
 
         return $position === false ? $class : substr($class, $position + 1);
     }

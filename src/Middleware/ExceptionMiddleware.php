@@ -57,13 +57,11 @@ final class ExceptionMiddleware implements MiddlewareInterface
         }
     }
 
-    /**
-     * Everything past this point runs while an exception is already
-     * being reported, so each step is guarded: a failure to report must
-     * not become a failure to respond.
-     */
     private function respond(ServerRequestInterface $request, Throwable $exception): ResponseInterface
     {
+        // Everything past this point runs while an exception is already
+        // being reported, so each step is guarded: a failure to report must
+        // not become a failure to respond.
         try {
             $problem = $this->handler->handle($exception);
         } catch (Throwable $failure) {
@@ -113,21 +111,16 @@ final class ExceptionMiddleware implements MiddlewareInterface
      */
     private static function encode(Problem $problem): array
     {
+        $flags = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+
         try {
-            $body = json_encode(
-                value: $problem,
-                flags: JSON_UNESCAPED_SLASHES
-                | JSON_UNESCAPED_UNICODE
-                | JSON_INVALID_UTF8_SUBSTITUTE
-                | JSON_THROW_ON_ERROR,
-            );
+            $body = json_encode($problem, $flags);
         } catch (Throwable $failure) {
             error_log(sprintf('errata: could not encode the problem document: %s', $failure->getMessage()));
 
             return [500, self::FALLBACK_BODY];
         }
 
-        /** @var string $body */
         return [$problem->status, $body];
     }
 }

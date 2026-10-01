@@ -10,9 +10,6 @@ use Override;
 /**
  * A sanitized string-keyed array argument.
  *
- * Exists so string-keyed maps never reach an API boundary as bare PHP
- * arrays, while still serializing as a JSON object.
- *
  * @api
  */
 final readonly class SanitizedMap implements JsonSerializable
