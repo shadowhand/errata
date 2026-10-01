@@ -34,7 +34,7 @@ final class FrameTest extends TestCase
             function: 'run',
             class: 'App\Foo',
             type: '->',
-            args: [1],
+            args: ['int'],
             source: null,
         );
 
@@ -45,7 +45,7 @@ final class FrameTest extends TestCase
                 'function' => 'run',
                 'class' => 'App\Foo',
                 'type' => '->',
-                'args' => [1],
+                'args' => ['int'],
             ],
             $frame->jsonSerialize(),
         );

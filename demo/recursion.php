@@ -14,13 +14,9 @@ require_once __DIR__ . '/bootstrap.php';
  */
 final class RecursiveNode
 {
-    public self $next;
-
     public function __construct(
         public readonly string $name,
-    ) {
-        $this->next = $this;
-    }
+    ) {}
 
     public function visit(self $node, int $remaining): never
     {
@@ -35,8 +31,6 @@ final class RecursiveNode
 namespace\run_demo(Mode::Full, static function (): never {
     $first = new RecursiveNode('first');
     $second = new RecursiveNode('second');
-    $first->next = $second;
-    $second->next = $first;
 
     $first->visit($second, 35);
 });

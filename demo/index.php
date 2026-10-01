@@ -16,6 +16,7 @@ $demo = match ($path) {
     '/full' => 'full.php',
     '/recursion' => 'recursion.php',
     '/sensitive' => 'sensitive.php',
+    '/types' => 'types.php',
     default => null,
 };
 
@@ -89,6 +90,7 @@ echo <<<'HTML'
                 <a href="/full">full</a>
                 <a href="/recursion">recursion</a>
                 <a href="/sensitive">sensitive</a>
+                <a href="/types">types</a>
             </nav>
         </main>
     </body>

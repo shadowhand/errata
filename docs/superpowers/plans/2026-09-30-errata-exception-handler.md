@@ -4,7 +4,7 @@
 
 **Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with full and minimal modes.
 
-**Architecture:** Ten focused units. Value objects in `Errata\Document\` own the JSON contract; `Errata\Trace\` holds the plumbing that reads source lines, sanitizes arguments, and assembles frames; `Errata\Path\PathRelativizer` turns absolute paths into project-relative ones; `Errata\ExceptionHandler` maps a `Throwable` to a `Problem`; `Errata\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
+**Architecture:** Ten focused units. Value objects in `Errata\Document\` own the JSON contract; `Errata\Trace\` holds the plumbing that reads source lines, types arguments, and assembles frames; `Errata\Path\PathRelativizer` turns absolute paths into project-relative ones; `Errata\ExceptionHandler` maps a `Throwable` to a `Problem`; `Errata\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
 
 **Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
 
@@ -492,358 +492,103 @@ git commit -m "feat: read the five-line source window around a line"
 
 ---
 
-### Task 3: Argument sanitizer
+### Task 3: Argument typer
 
 **Files:**
-- Create: `src/Document/SanitizedObject.php`
-- Create: `src/Document/SanitizedMap.php`
-- Create: `src/Trace/ArgumentSanitizer.php`
-- Test: `tests/Document/SanitizedObjectTest.php`
-- Test: `tests/Document/SanitizedMapTest.php`
-- Test: `tests/Trace/ArgumentSanitizerTest.php`
+- Create: `src/Trace/ArgumentTyper.php`
+- Test: `tests/Trace/ArgumentTyperTest.php`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces:
-  - `Errata\Document\SanitizedObject` — `__construct(public string $class, public array $properties)`, serializes to `['@class' => string, 'props' => array]`.
-  - `Errata\Document\SanitizedMap` — `__construct(public array $entries)`, serializes to its entries (a JSON object).
-  - `Errata\Trace\ArgumentSanitizer` — `sanitize(mixed $value): mixed`, total (never throws), limits depth 5 / 50 items / 500 bytes.
-  - `sanitize()` returns: scalars verbatim; strings truncated with `...`; lists as `list<mixed>`; maps as `SanitizedMap`; plain objects as `SanitizedObject` with at most 50 public properties and a `*truncated*` marker for the remainder; `Closure` as `'Closure'`; enums as `'FQCN::CASE'`; resources as `'resource(type)'`; `SensitiveParameterValue` as `'*redacted*'`; anything past depth 5 as `'*depth limit*'`; a closed resource as `'resource(closed)'`.
+- Produces: `Errata\Trace\ArgumentTyper` — `type(mixed $value): string`, total (never throws, never invokes user code). Returns `'vec'` for a list array (`array_is_list()`), `'dict'` for any other array, and `get_debug_type()` for everything else. A `SensitiveParameterValue` is unwrapped with `getValue()` and its inner value typed; the value is never emitted.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing test**
 
-`tests/Document/SanitizedObjectTest.php`:
+`tests/Trace/ArgumentTyperTest.php`:
 
 ```php
-<?php declare(strict_types=1);
+<?php
 
-namespace Errata\Tests\Document;
-
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\TestCase;
-use Errata\Document\SanitizedObject;
-
-#[CoversClass(SanitizedObject::class)]
-final class SanitizedObjectTest extends TestCase
-{
-    public function testItSerializesClassAndProperties(): void
-    {
-        $this->assertSame(
-            ['@class' => 'App\Thing', 'props' => ['id' => 1]],
-            (new SanitizedObject('App\Thing', ['id' => 1]))->jsonSerialize(),
-        );
-    }
-}
-```
-
-`tests/Document/SanitizedMapTest.php`:
-
-```php
-<?php declare(strict_types=1);
-
-namespace Errata\Tests\Document;
-
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\TestCase;
-use Errata\Document\SanitizedMap;
-
-#[CoversClass(SanitizedMap::class)]
-final class SanitizedMapTest extends TestCase
-{
-    public function testItSerializesItsEntries(): void
-    {
-        $this->assertSame(
-            ['alpha' => 1, 'beta' => 'two'],
-            (new SanitizedMap(['alpha' => 1, 'beta' => 'two']))->jsonSerialize(),
-        );
-    }
-}
-```
-
-`tests/Trace/ArgumentSanitizerTest.php`:
-
-```php
-<?php declare(strict_types=1);
+declare(strict_types=1);
 
 namespace Errata\Tests\Trace;
 
-use Closure;
+use Errata\Mode;
+use Errata\Trace\ArgumentTyper;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use SensitiveParameterValue;
-use Errata\Document\SanitizedMap;
-use Errata\Document\SanitizedObject;
-use Errata\Trace\ArgumentSanitizer;
 use stdClass;
-use Stringable;
 
-#[CoversClass(ArgumentSanitizer::class)]
-final class ArgumentSanitizerTest extends TestCase
+use function fclose;
+use function fopen;
+
+#[CoversClass(ArgumentTyper::class)]
+final class ArgumentTyperTest extends TestCase
 {
-    private ArgumentSanitizer $sanitizer;
+    private ArgumentTyper $typer;
 
+    #[Override]
     protected function setUp(): void
     {
-        $this->sanitizer = new ArgumentSanitizer();
+        $this->typer = new ArgumentTyper();
     }
 
-    public function testItPassesScalarsThroughUnchanged(): void
+    public function testItNamesScalars(): void
     {
-        $this->assertNull($this->sanitizer->sanitize(null));
-        $this->assertTrue($this->sanitizer->sanitize(true));
-        $this->assertSame(7, $this->sanitizer->sanitize(7));
-        $this->assertSame(1.5, $this->sanitizer->sanitize(1.5));
-        $this->assertSame('short', $this->sanitizer->sanitize('short'));
+        $this->assertSame('null', $this->typer->type(null));
+        $this->assertSame('bool', $this->typer->type(true));
+        $this->assertSame('int', $this->typer->type(7));
+        $this->assertSame('float', $this->typer->type(1.5));
+        $this->assertSame('string', $this->typer->type('plain'));
     }
 
-    public function testItTruncatesLongStrings(): void
+    public function testItSplitsArraysIntoVecAndDict(): void
     {
-        $sanitized = $this->sanitizer->sanitize(str_repeat('a', 501));
-
-        $this->assertIsString($sanitized);
-        $this->assertSame(503, strlen($sanitized));
-        $this->assertStringEndsWith('...', $sanitized);
+        $this->assertSame('vec', $this->typer->type([1, 2]));
+        $this->assertSame('vec', $this->typer->type([]));
+        $this->assertSame('dict', $this->typer->type(['key' => 'value']));
+        $this->assertSame('dict', $this->typer->type([0 => 'a', 2 => 'b']));
     }
 
-    public function testItKeepsListsAsLists(): void
+    public function testItNamesObjectsClosuresAndEnums(): void
     {
-        $this->assertSame([1, 'two'], $this->sanitizer->sanitize([1, 'two']));
+        $this->assertSame(stdClass::class, $this->typer->type(new stdClass()));
+        $this->assertSame('Closure', $this->typer->type(static fn(): int => 1));
+        $this->assertSame(Mode::class, $this->typer->type(Mode::Full));
     }
 
-    public function testItTreatsNonSequentialKeysAsAMap(): void
+    public function testItNamesResources(): void
     {
-        $sanitized = $this->sanitizer->sanitize([0 => 'a', 2 => 'b']);
+        $handle = fopen(filename: 'php://memory', mode: 'r');
 
-        $this->assertInstanceOf(SanitizedMap::class, $sanitized);
-        $this->assertSame('{"0":"a","2":"b"}', json_encode($sanitized));
-    }
-
-    public function testItMarksATruncatedList(): void
-    {
-        $json = json_encode($this->sanitizer->sanitize(range(1, 60)));
-
-        $this->assertIsString($json);
-        $this->assertStringEndsWith(',"... (10 more items)"]', $json);
-        $this->assertSame(51, substr_count($json, ',') + 1);
-    }
-
-    public function testItMarksATruncatedMap(): void
-    {
-        $entries = [];
-
-        for ($i = 0; $i < 60; $i++) {
-            $entries['key' . $i] = $i;
+        try {
+            $this->assertSame('resource (stream)', $this->typer->type($handle));
+        } finally {
+            fclose($handle);
         }
 
-        $sanitized = $this->sanitizer->sanitize($entries);
-
-        $this->assertInstanceOf(SanitizedMap::class, $sanitized);
-        $this->assertSame(51, count($sanitized->entries));
-        $this->assertSame(['*truncated*' => '10 more items'], array_slice($sanitized->entries, -1, null, true));
+        $this->assertSame('resource (closed)', $this->typer->type($handle));
     }
 
-    public function testItStopsAtTheDepthLimit(): void
+    public function testItUnwrapsSensitiveParametersToTheProtectedType(): void
     {
-        $nested = ['end'];
-
-        for ($i = 0; $i < 10; $i++) {
-            $nested = [$nested];
-        }
-
-        $json = json_encode($this->sanitizer->sanitize($nested));
-
-        $this->assertIsString($json);
-        $this->assertStringContainsString('*depth limit*', $json);
-        $this->assertSame(5, substr_count($json, '['));
-    }
-
-    public function testItEmptiesARepeatedObjectInsteadOfRecursing(): void
-    {
-        $node = new stdClass();
-        $node->self = $node;
-
-        $this->assertSame(
-            '{"@class":"stdClass","props":{"self":{"@class":"stdClass","props":[]}}}',
-            json_encode($this->sanitizer->sanitize($node)),
-        );
-    }
-
-    public function testItKeepsPublicPropertiesOnly(): void
-    {
-        $json = json_encode($this->sanitizer->sanitize(new ArgumentSanitizerFixture()));
-
-        $this->assertIsString($json);
-        $this->assertStringContainsString('"props":{"public":"yes"}', $json);
-        $this->assertStringNotContainsString('protected', $json);
-        $this->assertStringNotContainsString('private', $json);
-    }
-
-    public function testItNeverCallsToString(): void
-    {
-        $sanitized = $this->sanitizer->sanitize(new ArgumentSanitizerHostileFixture());
-
-        $this->assertInstanceOf(SanitizedObject::class, $sanitized);
-        $this->assertSame([], $sanitized->properties);
-    }
-
-    public function testItRedactsSensitiveParameters(): void
-    {
-        $this->assertSame('*redacted*', $this->sanitizer->sanitize(new SensitiveParameterValue('hunter2')));
-    }
-
-    public function testItNamesClosuresAndEnums(): void
-    {
-        $this->assertSame('Closure', $this->sanitizer->sanitize(static fn (): int => 1));
-        $this->assertSame(
-            'Errata\Tests\Trace\ArgumentSanitizerEnum::Second',
-            $this->sanitizer->sanitize(ArgumentSanitizerEnum::Second),
-        );
-    }
-
-    public function testItDescribesResources(): void
-    {
-        $handle = fopen('php://memory', 'r');
-
-        $this->assertSame('resource(stream)', $this->sanitizer->sanitize($handle));
-
-        fclose($handle);
-
-        $this->assertSame('resource(closed)', $this->sanitizer->sanitize($handle));
-    }
-
-    public function testItSanitizesPropertiesRecursively(): void
-    {
-        $payload = new stdClass();
-        $payload->token = new SensitiveParameterValue('hunter2');
-        $payload->nested = ['a' => str_repeat('b', 501)];
-
-        $json = json_encode($this->sanitizer->sanitize($payload));
-
-        $this->assertIsString($json);
-        $this->assertStringContainsString('"token":"*redacted*"', $json);
-        $this->assertStringContainsString('"nested":{"a":"' . str_repeat('b', 500) . '..."}', $json);
-    }
-}
-
-enum ArgumentSanitizerEnum
-{
-    case First;
-    case Second;
-}
-
-final class ArgumentSanitizerFixture
-{
-    public string $public = 'yes';
-
-    protected string $protected = 'no';
-
-    private string $private = 'no';
-
-    /**
-     * Reads every property, so the fixture has no unused members.
-     *
-     * @return list<string>
-     */
-    public function values(): array
-    {
-        return [$this->public, $this->protected, $this->private];
-    }
-}
-
-final class ArgumentSanitizerHostileFixture implements Stringable
-{
-    #[Override]
-    public function __toString(): string
-    {
-        throw new RuntimeException('__toString must not be called');
+        $this->assertSame('string', $this->typer->type(new SensitiveParameterValue('hunter2')));
+        $this->assertSame('vec', $this->typer->type(new SensitiveParameterValue([1, 2])));
+        $this->assertSame('dict', $this->typer->type(new SensitiveParameterValue(['a' => 1])));
     }
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Run the test to verify it fails**
 
-Run: `vendor/bin/phpunit tests/Document/SanitizedObjectTest.php tests/Document/SanitizedMapTest.php tests/Trace/ArgumentSanitizerTest.php`
-Expected: FAIL — `Class "Errata\Document\SanitizedObject" not found`.
+Run: `vendor/bin/phpunit tests/Trace/ArgumentTyperTest.php`
+Expected: FAIL — `Class "Errata\Trace\ArgumentTyper" not found`.
 
 - [ ] **Step 3: Write the implementation**
 
-`src/Document/SanitizedObject.php`:
-
-```php
-<?php declare(strict_types=1);
-
-namespace Errata\Document;
-
-use JsonSerializable;
-use Override;
-
-/**
- * A sanitized object argument: class name plus public properties.
- *
- * @api
- */
-final readonly class SanitizedObject implements JsonSerializable
-{
-    /**
-     * @param array<string, mixed> $properties
-     */
-    public function __construct(
-        public string $class,
-        public array $properties,
-    ) {}
-
-    /**
-     * @return array<string, mixed>
-     */
-    #[Override]
-    public function jsonSerialize(): array
-    {
-        return ['@class' => $this->class, 'props' => $this->properties];
-    }
-}
-```
-
-`src/Document/SanitizedMap.php`:
-
-```php
-<?php declare(strict_types=1);
-
-namespace Errata\Document;
-
-use JsonSerializable;
-use Override;
-
-/**
- * A sanitized string-keyed array argument.
- *
- * Exists so string-keyed maps never reach an API boundary as bare PHP
- * arrays, while still serializing as a JSON object.
- *
- * @api
- */
-final readonly class SanitizedMap implements JsonSerializable
-{
-    /**
-     * @param array<string, mixed> $entries
-     */
-    public function __construct(
-        public array $entries,
-    ) {}
-
-    /**
-     * @return array<string, mixed>
-     */
-    #[Override]
-    public function jsonSerialize(): array
-    {
-        return $this->entries;
-    }
-}
-```
-
-`src/Trace/ArgumentSanitizer.php`:
+`src/Trace/ArgumentTyper.php`:
 
 ```php
 <?php
@@ -852,202 +597,51 @@ declare(strict_types=1);
 
 namespace Errata\Trace;
 
-use Closure;
 use SensitiveParameterValue;
-use Errata\Document\SanitizedMap;
-use Errata\Document\SanitizedObject;
-use SplObjectStorage;
-use UnitEnum;
 
 use function array_is_list;
-use function array_slice;
-use function count;
-use function get_object_vars;
-use function get_resource_type;
+use function get_debug_type;
 use function is_array;
-use function is_bool;
-use function is_finite;
-use function is_float;
-use function is_int;
-use function is_nan;
-use function is_object;
-use function is_resource;
-use function is_string;
-use function sprintf;
-use function strlen;
-use function substr;
 
 /**
- * Converts an arbitrary argument value into something JSON-encodable.
- *
- * This is a total function: it must not throw, must not invoke user code
- * (`__toString`, `__debugInfo`, `JsonSerializable`), and must not loop
- * forever. It runs while an exception is being reported, so failing here
- * would destroy the report. It must not produce a value `json_encode()`
- * refuses.
+ * Names the type of a trace argument without exposing its value.
  *
  * @internal
  */
-final class ArgumentSanitizer
+final class ArgumentTyper
 {
-    private const int MAX_DEPTH = 5;
-
-    private const int MAX_ITEMS = 50;
-
-    private const int MAX_STRING_LENGTH = 500;
-
     /**
-     * Objects on the current recursion path, used to stop cycles.
-     *
-     * @var SplObjectStorage<object, null>
+     * Arrays are split into `vec` (a list) and `dict` (anything else);
+     * every other value is named by `get_debug_type()`. A
+     * `SensitiveParameterValue` is unwrapped so the trace reports the
+     * type of the protected value without ever exposing the value.
      */
-    private SplObjectStorage $processing;
-
-    public function __construct()
+    public function type(mixed $value): string
     {
-        /** @var SplObjectStorage<object, null> $processing */
-        $processing = new SplObjectStorage();
-
-        $this->processing = $processing;
-    }
-
-    public function sanitize(mixed $value): mixed
-    {
-        return $this->sanitizeValue($value, 0);
-    }
-
-    private function sanitizeValue(mixed $value, int $depth): mixed
-    {
-        return match (true) {
-            $depth >= self::MAX_DEPTH => '*depth limit*',
-            $value === null, is_bool($value), is_int($value) => $value,
-            is_float($value) => self::float($value),
-            is_string($value) => $this->sanitizeString($value),
-            is_array($value) => $this->sanitizeArray($value, $depth),
-            $value instanceof SensitiveParameterValue => '*redacted*',
-            $value instanceof Closure => 'Closure',
-            $value instanceof UnitEnum => $value::class . '::' . $value->name,
-            is_object($value) => $this->sanitizeObject($value, $depth),
-            is_resource($value) => 'resource(' . get_resource_type($value) . ')',
-            default => 'resource(closed)',
-        };
-    }
-
-    /**
-     * `json_encode()` refuses INF and NAN, and a document that cannot be
-     * encoded is a document that cannot be reported, so non-finite
-     * floats become their names.
-     */
-    private static function float(float $value): float|string
-    {
-        if (is_finite($value)) {
-            return $value;
+        if ($value instanceof SensitiveParameterValue) {
+            return $this->type($value->getValue());
         }
 
-        if (is_nan($value)) {
-            return 'NAN';
+        if (is_array($value)) {
+            return array_is_list($value) ? 'vec' : 'dict';
         }
 
-        return $value > 0.0 ? 'INF' : '-INF';
-    }
-
-    private function sanitizeString(string $value): string
-    {
-        if (strlen($value) <= self::MAX_STRING_LENGTH) {
-            return $value;
-        }
-
-        return substr(string: $value, offset: 0, length: self::MAX_STRING_LENGTH) . '...';
-    }
-
-    /**
-     * A list stays a list; anything else becomes a SanitizedMap.
-     *
-     * @param array<array-key, mixed> $value
-     *
-     * @return list<mixed>|SanitizedMap
-     */
-    private function sanitizeArray(array $value, int $depth): array|SanitizedMap
-    {
-        $total = count($value);
-        $slice = array_slice(array: $value, offset: 0, length: self::MAX_ITEMS, preserve_keys: true);
-
-        if (array_is_list($value)) {
-            $items = [];
-
-            /** @var mixed $item */
-            foreach ($slice as $item) {
-                $items[] = $this->sanitizeValue($item, $depth + 1);
-            }
-
-            if ($total > self::MAX_ITEMS) {
-                $items[] = sprintf('... (%d more items)', $total - self::MAX_ITEMS);
-            }
-
-            return $items;
-        }
-
-        return new SanitizedMap($this->sanitizeEntries($slice, $depth, $total));
-    }
-
-    /**
-     * Sanitizes a capped slice of entries, appending the truncation marker
-     * when the source held more items than the cap.
-     *
-     * @param array<array-key, mixed> $slice
-     *
-     * @return array<string, mixed>
-     */
-    private function sanitizeEntries(array $slice, int $depth, int $total): array
-    {
-        $entries = [];
-
-        /** @var mixed $item */
-        foreach ($slice as $key => $item) {
-            $entries[(string) $key] = $this->sanitizeValue($item, $depth + 1);
-        }
-
-        if ($total > self::MAX_ITEMS) {
-            $entries['*truncated*'] = sprintf('%d more items', $total - self::MAX_ITEMS);
-        }
-
-        return $entries;
-    }
-
-    private function sanitizeObject(object $value, int $depth): SanitizedObject
-    {
-        if ($this->processing->offsetExists($value)) {
-            return new SanitizedObject($value::class, []);
-        }
-
-        $this->processing->offsetSet($value, null);
-
-        try {
-            /** @var array<string, mixed> $all */
-            $all = get_object_vars($value);
-            $slice = array_slice(array: $all, offset: 0, length: self::MAX_ITEMS, preserve_keys: true);
-
-            return new SanitizedObject($value::class, $this->sanitizeEntries($slice, $depth, count($all)));
-        } finally {
-            $this->processing->offsetUnset($value);
-        }
+        return get_debug_type($value);
     }
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 4: Run the test to verify it passes**
 
-Run: `vendor/bin/phpunit tests/Document/SanitizedObjectTest.php tests/Document/SanitizedMapTest.php tests/Trace/ArgumentSanitizerTest.php`
-Expected: PASS, 16 tests.
-
-If `testItStopsAtTheDepthLimit` fails on the `substr_count` assertion, print the encoded value and adjust the expected count — the invariant to preserve is that nesting is bounded, not the literal number.
+Run: `vendor/bin/phpunit tests/Trace/ArgumentTyperTest.php`
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 composer run fix
-git add src/Document/SanitizedObject.php src/Document/SanitizedMap.php src/Trace/ArgumentSanitizer.php tests/Document/SanitizedObjectTest.php tests/Document/SanitizedMapTest.php tests/Trace/ArgumentSanitizerTest.php
-git commit -m "feat: sanitize trace arguments without invoking user code"
+git add src/Trace/ArgumentTyper.php tests/Trace/ArgumentTyperTest.php
+git commit -m "feat: report trace argument types instead of values"
 ```
 
 ---
@@ -1276,7 +870,7 @@ git commit -m "feat: relativize exception paths against the project directory"
 **Interfaces:**
 - Consumes: `Errata\Document\SourceLine` (Task 2).
 - Produces:
-  - `Errata\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, ?array $args = null, array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is emitted only when PHP reported arguments for the frame, so `args: []` is a reported empty list and an absent member means PHP did not report arguments.
+  - `Errata\Document\Frame` — `__construct(?string $file = null, ?int $line = null, ?string $function = null, ?string $class = null, ?string $type = null, ?array $args = null, array $source = [])`. Serializes members in order `file, line, function, class, type, args, source`, omitting null members and an empty `source`; `args` is a list of type names, emitted only when PHP reported arguments for the frame, so `args: []` is a reported empty list and an absent member means PHP did not report arguments.
   - `Errata\Document\Trace` — `__construct(public array $frames, public bool $truncated)`, `jsonSerialize(): list<Frame>` returning the frames.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1304,7 +898,7 @@ final class FrameTest extends TestCase
 
     public function testItOmitsNullMembersAndEmptySource(): void
     {
-        $frame = new Frame(file: 'src/Foo.php', line: 12, function: 'run', class: 'App\Foo', type: '->', args: [1], source: []);
+        $frame = new Frame(file: 'src/Foo.php', line: 12, function: 'run', class: 'App\Foo', type: '->', args: ['int'], source: []);
 
         $this->assertSame(
             [
@@ -1313,7 +907,7 @@ final class FrameTest extends TestCase
                 'function' => 'run',
                 'class' => 'App\Foo',
                 'type' => '->',
-                'args' => [1],
+                'args' => ['int'],
             ],
             $frame->jsonSerialize(),
         );
@@ -1419,7 +1013,7 @@ use Override;
 final readonly class Frame implements JsonSerializable
 {
     /**
-     * @param list<mixed>|null $args
+     * @param list<string>|null $args
      * @param list<SourceLine> $source
      */
     public function __construct(
@@ -1958,8 +1552,8 @@ git commit -m "feat: add the problem document type with both modes"
 - Test: `tests/Trace/TraceFactoryTest.php`
 
 **Interfaces:**
-- Consumes: `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentSanitizer` (Task 3), `Errata\Document\Frame` and `Errata\Document\Trace` (Task 5).
-- Produces: `Errata\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentSanitizer $arguments, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array, which already lists the frame nearest the throw first, so the first `$traceLimit` entries — the innermost frames — are kept. An entry without an `args` key (or with a non-array one) yields a frame with no `args` member; an empty `args` array is kept as `args: []`.
+- Consumes: `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentTyper` (Task 3), `Errata\Document\Frame` and `Errata\Document\Trace` (Task 5).
+- Produces: `Errata\Trace\TraceFactory` — `__construct(PathRelativizer $relativizer, SourceContext $source, ArgumentTyper $types, int $traceLimit)`, `frames(array $trace): Trace` where the input is PHP's `Throwable::getTrace()` array, which already lists the frame nearest the throw first, so the first `$traceLimit` entries — the innermost frames — are kept. An entry without an `args` key (or with a non-array one) yields a frame with no `args` member; an empty `args` array is kept as `args: []`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1974,7 +1568,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Errata\Document\Trace;
 use Errata\Path\PathRelativizer;
-use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
 use stdClass;
@@ -1995,7 +1589,7 @@ final class TraceFactoryTest extends TestCase
         $this->factory = new TraceFactory(
             new PathRelativizer($this->root),
             new SourceContext(),
-            new ArgumentSanitizer(),
+            new ArgumentTyper(),
             traceLimit: 30,
         );
     }
@@ -2174,7 +1768,7 @@ final class TraceFactory
     public function __construct(
         private readonly PathRelativizer $relativizer,
         private readonly SourceContext $source,
-        private readonly ArgumentSanitizer $arguments,
+        private readonly ArgumentTyper $types,
         private readonly int $traceLimit,
     ) {}
 
@@ -2225,7 +1819,7 @@ final class TraceFactory
      *
      * @param array<string, mixed> $entry
      *
-     * @return list<mixed>|null
+     * @return list<string>|null
      */
     private function args(array $entry): ?array
     {
@@ -2233,13 +1827,7 @@ final class TraceFactory
             return null;
         }
 
-        $args = [];
-
-        foreach ($entry['args'] as $argument) {
-            $args[] = $this->arguments->sanitize($argument);
-        }
-
-        return $args;
+        return array_map($this->types->type(...), array_values($entry['args']));
     }
 
     /**
@@ -2292,7 +1880,7 @@ git commit -m "feat: assemble trace frames with source windows and arguments"
 - Test: `tests/ExceptionHandlerTest.php`
 
 **Interfaces:**
-- Consumes: `Errata\Mode` (Task 1), `Errata\Document\Problem` (Task 6), `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentSanitizer` (Task 3), `Errata\Trace\TraceFactory` (Task 7).
+- Consumes: `Errata\Mode` (Task 1), `Errata\Document\Problem` (Task 6), `Errata\Path\PathRelativizer` (Task 4), `Errata\Trace\SourceContext` (Task 2), `Errata\Trace\ArgumentTyper` (Task 3), `Errata\Trace\TraceFactory` (Task 7).
 - Produces:
   - `Errata\Http\StatusCodeInterface` — `getStatusCode(): int`.
   - `Errata\ExceptionHandler` — `__construct(Mode $mode, ?string $projectDir = null, int $traceLimit = 30)`, `handle(Throwable $exception): Problem`.
@@ -2484,7 +2072,7 @@ use Override;
 use Errata\Document\Problem;
 use Errata\Http\StatusCodeInterface;
 use Errata\Path\PathRelativizer;
-use Errata\Trace\ArgumentSanitizer;
+use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
 use Throwable;
@@ -2520,7 +2108,7 @@ final class ExceptionHandler implements ExceptionHandlerInterface
 
         $this->relativizer = new PathRelativizer($projectDir);
         $this->source = new SourceContext();
-        $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentSanitizer(), $traceLimit);
+        $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentTyper(), $traceLimit);
     }
 
     #[Override]
@@ -3184,12 +2772,12 @@ original line numbers preserved. Traces are capped at 30 frames
 (`traceLimit`), keeping the frames nearest the throw; a capped trace is
 flagged with `truncated`.
 
-Frame arguments are included, truncated to depth 5, 50 items, and 500
-bytes per string. Objects are reduced to a class name plus at most 50
-public properties, with the remainder reported by the same
-`"*truncated*": "N more items"` marker used for maps.
-`#[\SensitiveParameter]` values are redacted, and `__toString()` is
-never called.
+Frame arguments are reduced to their types, never their values: `args`
+is a list of type names such as `int`, `string`, `bool`, `null`,
+`float`, `Closure`, a class name, or `resource (stream)`. An array is
+`vec` when it is a list and `dict` otherwise. A
+`#[\SensitiveParameter]` argument reports the type of the protected
+value, never the value.
 
 **Arguments require `zend.exception_ignore_args=Off`.** It defaults to
 `Off`, and `php.ini-development` sets `Off`, but `php.ini-production`
@@ -3358,6 +2946,6 @@ git commit -m "docs: document usage, modes, traces, and status codes"
 Before declaring the plan done, confirm each of these:
 
 - `composer run verify` passes; coverage is exactly 100%.
-- Every file listed under `src/` in the spec exists: `Mode.php`, `ExceptionHandlerInterface.php`, `ExceptionHandler.php`, `Http/StatusCodeInterface.php`, `Middleware/ExceptionMiddleware.php`, `Document/{Problem,Trace,Frame,SourceLine,SanitizedObject,SanitizedMap}.php`, `Path/PathRelativizer.php`, `Trace/{TraceFactory,SourceContext,ArgumentSanitizer}.php`.
+- Every file listed under `src/` in the spec exists: `Mode.php`, `ExceptionHandlerInterface.php`, `ExceptionHandler.php`, `Http/StatusCodeInterface.php`, `Middleware/ExceptionMiddleware.php`, `Document/{Problem,Trace,Frame,SourceLine}.php`, `Path/PathRelativizer.php`, `Trace/{TraceFactory,SourceContext,ArgumentTyper}.php`.
 - `git grep -n 'vendor' src/` returns nothing: no vendor detection survives anywhere in the implementation.
 - The smoke script's minimal body is exactly `{"type":"about:blank","title":"Internal Server Error","status":500,"code":42,"detail":"RuntimeException"}`.
