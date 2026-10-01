@@ -539,6 +539,7 @@ Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 - `file`/`line`/`source` are omitted when the frame has no file
   (internal functions, `call_user_func` frames).
 - `class` and `type` are omitted for plain function calls.
+- PHP embeds source paths in closure function names (`{closure:/absolute/file.php:line}`) and anonymous class names (after a NUL byte, before the `:line$ordinal` suffix). Relativize those embedded paths when they are under the application directory, preserving the surrounding PHP-generated name; paths outside it keep `PathRelativizer`'s absolute-path behavior.
 - `type` is `->` for instance method calls and `::` for static calls,
   matching the keys PHP itself provides in a trace entry.
 - `args` is present only when PHP reported arguments for the frame.

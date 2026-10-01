@@ -125,6 +125,69 @@ final class TraceFactoryTest extends TestCase
         );
     }
 
+    public function testItRelativizesPathsEmbeddedInClosureNames(): void
+    {
+        $trace = $this->factory->frames([
+            [
+                'function' => '{closure:' . $this->root . '/demo/full.php:12}',
+                'line' => 12,
+            ],
+            [
+                'function' => '{closure:' . $this->root . "/demo/full\nview.php:13}",
+                'line' => 13,
+            ],
+        ]);
+
+        $this->assertSame(
+            [
+                ['line' => 12, 'function' => '{closure:demo/full.php:12}'],
+                ['line' => 13, 'function' => "{closure:demo/full\nview.php:13}"],
+            ],
+            $this->serialize($trace),
+        );
+    }
+
+    public function testItRelativizesPathsEmbeddedInAnonymousClassNames(): void
+    {
+        $trace = $this->factory->frames([
+            [
+                'line' => 36,
+                'class' =>
+                    'Psr\\Http\\Server\\RequestHandlerInterface@anonymous'
+                        . "\0"
+                        . $this->root
+                        . '/demo/bootstrap.php:36$0',
+                'type' => '->',
+            ],
+            [
+                'line' => 37,
+                'class' =>
+                    'Psr\\Http\\Server\\RequestHandlerInterface@anonymous'
+                        . "\0"
+                        . $this->root
+                        . "/demo/bootstrap\nhandler.php:37$0",
+                'type' => '->',
+            ],
+        ]);
+
+        $this->assertSame(
+            [
+                [
+                    'line' => 36,
+                    'class' => 'Psr\\Http\\Server\\RequestHandlerInterface@anonymous' . "\0demo/bootstrap.php:36$0",
+                    'type' => '->',
+                ],
+                [
+                    'line' => 37,
+                    'class' =>
+                        'Psr\\Http\\Server\\RequestHandlerInterface@anonymous' . "\0demo/bootstrap\nhandler.php:37$0",
+                    'type' => '->',
+                ],
+            ],
+            $this->serialize($trace),
+        );
+    }
+
     public function testItCarriesClassTypeAndArguments(): void
     {
         $trace = $this->factory->frames([
