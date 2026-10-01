@@ -56,7 +56,8 @@ Full responses add `file`, `line`, `source`, `trace`, and, for chained exception
 ## Traces
 
 Paths are relative to the application directory, which defaults to the Composer root package directory and can be
-overridden with the second `ExceptionHandler` argument.
+overridden with the second `ExceptionHandler` argument. Paths embedded in PHP closure function names and anonymous
+class names are also made relative when they point inside the application directory.
 
 The exception's origin and every frame carry one `source` object shaped as `{start, end, code}`. `start` and `end`
 are inclusive file line numbers; `code` is an array with one string per source line. Empty strings represent blank

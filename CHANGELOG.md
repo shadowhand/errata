@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Full responses now report source context as one `{start, end, code}` block with one `code` array element per line.
   It covers the reported line ±3, clamped to the file, with blank lines and whitespace preserved.
+- Paths embedded in trace closure function names and anonymous class names are now relative to the application root.
 
 ### Added
 
