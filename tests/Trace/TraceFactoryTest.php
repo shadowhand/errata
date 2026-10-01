@@ -8,7 +8,6 @@ use LogicException;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 use Snafu\Path\PathRelativizer;
 use Snafu\Trace\ArgumentSanitizer;
@@ -59,7 +58,7 @@ final class TraceFactoryTest extends TestCase
         ]);
 
         $this->assertFalse($trace->truncated);
-        $this->assertInstanceOf(SourceBlock::class, $trace->frames[0]->source ?? null);
+        $this->assertSame('$alpha = 1;', $trace->frames[0]->source ?? null);
         $this->assertNull($trace->frames[1]->source ?? null);
         $this->assertSame(
             [
@@ -67,19 +66,7 @@ final class TraceFactoryTest extends TestCase
                     'file' => 'tests/Fixtures/source/window.php',
                     'line' => 5,
                     'function' => 'inner',
-                    'source' => [
-                        'start' => 2,
-                        'end' => 8,
-                        'code' => [
-                            '',
-                            'function snafu_fixture_alpha(): void',
-                            '{',
-                            '    $alpha = 1;',
-                            '',
-                            '    $beta = 2;',
-                            '}',
-                        ],
-                    ],
+                    'source' => '$alpha = 1;',
                 ],
                 [
                     'file' => 'src/Outer.php',
@@ -91,23 +78,22 @@ final class TraceFactoryTest extends TestCase
         );
     }
 
-    public function testItRetainsEmptyAndWhitespaceOnlySource(): void
+    public function testItTrimsEmptyAndWhitespaceOnlySource(): void
     {
         foreach ([
-            ["\n", 1, ['']],
-            [" \t \r\n\t  \r\n", 2, [" \t ", "\t  "]],
-        ] as [$contents, $end, $code]) {
+            ["\n",               1, ''],
+            [" \t \r\n\t  \r\n", 1, ''],
+            [" \t \r\n\t  \r\n", 2, ''],
+            ["    \$x = 1;  \n", 1, '$x = 1;'],
+        ] as [$contents, $line, $source]) {
             $path = sys_get_temp_dir() . '/snafu-trace-source-' . bin2hex(random_bytes(8)) . '.php';
             file_put_contents(filename: $path, data: $contents);
 
             try {
-                $trace = $this->factory->frames([['file' => $path, 'line' => 1]]);
+                $trace = $this->factory->frames([['file' => $path, 'line' => $line]]);
 
-                $this->assertInstanceOf(SourceBlock::class, $trace->frames[0]->source ?? null);
-                $this->assertSame(
-                    [['file' => $path, 'line' => 1, 'source' => ['start' => 1, 'end' => $end, 'code' => $code]]],
-                    $this->serialize($trace),
-                );
+                $this->assertSame($source, $trace->frames[0]->source ?? null);
+                $this->assertSame([['file' => $path, 'line' => $line, 'source' => $source]], $this->serialize($trace));
             } finally {
                 unlink($path);
             }
@@ -262,7 +248,7 @@ final class TraceFactoryTest extends TestCase
         $this->assertCount(30, $trace->frames);
     }
 
-    public function testItSkipsTheSourceWindowWhenTheLineIsOutOfRange(): void
+    public function testItSkipsTheSourceLineWhenTheLineIsOutOfRange(): void
     {
         $trace = $this->factory->frames([[
             'file' => $this->root . self::ROOT_FIXTURE,

@@ -2,6 +2,5 @@
 
 function snafu_fixture_utf8_failure(): never
 {
-    // ÿþ invalid utf8 €
-    throw new RuntimeException("invalid utf8 fixture");
+    throw new RuntimeException("invalid utf8 fixture"); // ÿþ invalid utf8 €
 }

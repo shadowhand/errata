@@ -4,32 +4,22 @@ declare(strict_types=1);
 
 namespace Snafu\Trace;
 
-use Snafu\Document\SourceBlock;
-
 use function array_key_exists;
-use function array_slice;
 use function array_values;
-use function count;
 use function file;
 use function is_file;
 use function is_readable;
-use function max;
-use function min;
+use function trim;
 
 use const FILE_IGNORE_NEW_LINES;
 
 /**
- * Reads the fixed source window around a line of a file.
+ * Reads one line of source from a file.
  *
  * @internal
  */
 final class SourceContext
 {
-    /**
-     * Lines kept either side of the reported line: up to 7 lines in total.
-     */
-    private const int CONTEXT_RADIUS = 3;
-
     /**
      * Contents of files already read, keyed by absolute path.
      *
@@ -38,26 +28,16 @@ final class SourceContext
     private array $files = [];
 
     /**
-     * Returns the reported line ±3 as one block, preserving all whitespace.
+     * Returns the source line at `$line`, trimmed of surrounding
+     * whitespace.
      *
-     * Unavailable context yields null, distinct from a valid blank block.
+     * Unavailable source yields null, distinct from a valid blank line.
      */
-    public function window(string $absolutePath, int $line): ?SourceBlock
+    public function line(string $absolutePath, int $line): ?string
     {
-        $lines = $this->lines($absolutePath);
+        $source = $this->lines($absolutePath)[$line - 1] ?? null;
 
-        if ($lines === [] || $line < 1 || $line > count($lines)) {
-            return null;
-        }
-
-        $first = max(1, $line - self::CONTEXT_RADIUS);
-        $last = min(count($lines), $line + self::CONTEXT_RADIUS);
-
-        return new SourceBlock(
-            start: $first,
-            end: $last,
-            code: array_slice(array: $lines, offset: $first - 1, length: $last - $first + 1),
-        );
+        return $source === null ? null : trim($source);
     }
 
     /**

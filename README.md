@@ -59,11 +59,9 @@ Paths are relative to the application directory, which defaults to the Composer 
 overridden with the second `ExceptionHandler` argument. Paths embedded in PHP closure function names and anonymous
 class names are also made relative when they point inside the application directory.
 
-The exception's origin and every frame carry one `source` object shaped as `{start, end, code}`. `start` and `end`
-are inclusive file line numbers; `code` is an array with one string per source line. Empty strings represent blank
-lines. It covers the reported line ±3, clamped to the file, preserving indentation and whitespace. Unavailable source
-is omitted. Traces are capped at 30 frames (`traceLimit`), keeping the frames nearest the throw; a capped trace
-is flagged with `traceTruncated`.
+The exception's origin and every frame carry one `source` string: the source line at the reported `line`, trimmed
+of surrounding whitespace. A blank line is an empty string. Unavailable source is omitted. Traces are capped at
+30 frames (`traceLimit`), keeping the frames nearest the throw; a capped trace is flagged with `traceTruncated`.
 
 Frame arguments are included, truncated to depth 5, 50 items, and 500 bytes per string. Objects are reduced to a
 class name plus at most 50 public properties, with the remainder reported by the same `"*truncated*": "N more

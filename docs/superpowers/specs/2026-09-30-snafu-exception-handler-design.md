@@ -5,15 +5,14 @@ Status: approved in brainstorming; pending review of this document
 
 ## Source-context amendments — 2026-10-01
 
-The source contract is `{line: int, source: {start: int, end: int, code: list<string>}}`. The outer `line`
-remains the reported line; `start` and `end` are the inclusive, original file line numbers of the contiguous
-window. `code` contains one string per physical source line; blank lines are empty strings. The window is the
-reported line ±3, with no blank lines removed.
+The source contract is `{line: int, source: string}`. The outer `line` is the reported line; `source` is that
+one physical source line, trimmed of surrounding whitespace. Unavailable source is omitted.
 
-The first amendment chose a single multiline string for `code`. This follow-up replaces that representation
-with a line array so JSON viewers display code line by line without escaped newline characters. Both amendments
-change the existing response contract; no compatibility format is retained. The sections below describe the
-current contract, and the implementation follows it.
+Earlier amendments carried a `{start, end, code}` block covering the reported line ±3, first as one multiline
+string and then as a line array. The surrounding lines proved unhelpful and the nested object read poorly in
+JSON, so this amendment reduces `source` to the single reported line. Each amendment changes the existing
+response contract; no compatibility format is retained. The sections below describe the current contract, and
+the implementation follows it.
 
 ## Purpose
 
@@ -34,7 +33,7 @@ Success criteria:
   short exception class name in `detail`, and the exception code, and
   nothing else that could leak internals.
 - Full bodies contain `detail` as `class: message`, the origin
-  `file`/`line`/`source`, and a frame list, each with a source block of up to 7 lines.
+  `file`/`line`/`source`, and a frame list, each with its source line.
 - No code path in the middleware can itself throw, including when
   logging fails or when JSON encoding fails.
 
@@ -49,10 +48,9 @@ Success criteria:
    name in `detail`, and code only.
 6. Full: additionally `detail` as `class: message`, file, line, trace.
 7. Trace paths are relative to the application directory.
-8. Context is the reported line ±3, clamped to the file, for the origin
-   and for every frame alike.
-9. Context is one contiguous code block with inclusive `start` and `end`
-   line numbers; blank and whitespace-only lines are preserved.
+8. Context is the source line at the reported line, for the origin and
+   for every frame alike.
+9. Context is one source line, trimmed of surrounding whitespace.
 
 ## Decisions
 
@@ -66,7 +64,7 @@ later changes.
 | 3 | Minimal body | Full-only members omitted entirely, never `null`; `detail` is the short class name |
 | 4 | Class structure | Separate `ExceptionHandler` + `ExceptionMiddleware` |
 | 5 | Logging | `LoggerInterface` optional (null disables), level configurable, default `LogLevel::ERROR` |
-| 6 | Trace frame shape | Reported `line` plus one `source` object with `{start, end, code}`; `code` is a line array, and bounds are inclusive original file line numbers |
+| 6 | Trace frame shape | Reported `line` plus one `source` string: the source line at that line |
 | 7 | Vendor detection | None: no vendor flag, no vendor-directory config; every frame is treated identically |
 | 8 | Frame order | Innermost-first — PHP's own `getTrace()` order, nothing reversed |
 | 9 | Frame arguments | Included, truncated; `#[\SensitiveParameter]` respected; omitted when PHP does not report them |
@@ -83,7 +81,7 @@ later changes.
 | 20 | Objects in arguments | Class name plus at most 50 public properties |
 | 21 | Origin frame | Top-level `file`/`line`/`source` only; not duplicated into `trace` |
 | 22 | Response headers | `Content-Type: application/problem+json` only |
-| 23 | Context window | Reported line ±3, clamped to the file, origin and frames alike; `code` is a line list with blank lines and whitespace preserved |
+| 23 | Source context | The source line at the reported line, origin and frames alike, trimmed of surrounding whitespace |
 | 24 | Document types | DTOs implementing `JsonSerializable`; bare arrays only for lists |
 | 25 | Map payloads | String-keyed maps are carried by a DTO and serialized as a JSON object |
 | 26 | API markers | Document DTOs are `@api`; collaborator classes are `@internal` |
@@ -121,7 +119,6 @@ src/
   Document/Problem.php                   final readonly, JsonSerializable
   Document/Trace.php                     final readonly, JsonSerializable
   Document/Frame.php                     final readonly, JsonSerializable
-  Document/SourceBlock.php               final readonly, JsonSerializable
   Document/SanitizedObject.php           final readonly, JsonSerializable
   Document/SanitizedMap.php              final readonly, JsonSerializable
   Path/PathRelativizer.php               final class
@@ -142,7 +139,7 @@ Every class is `final` (mago `enforce-class-finality`). Document DTOs,
 `Path/`, `Trace/`, and the internal members of the rest are marked
 `@internal` (mago `require-api-or-internal`). `Problem` is `@api`
 because it is the return type of `ExceptionHandlerInterface::handle()`
-and holds `Trace`, `Frame`, and `SourceBlock`; marking it internal would
+and holds `Trace` and `Frame`; marking it internal would
 put an internal type in a public signature without making it
 inaccessible.
 
@@ -225,7 +222,7 @@ final readonly class Problem implements JsonSerializable
         public ?string $detail = null,
         public ?string $file = null,
         public ?int $line = null,
-        public ?SourceBlock $source = null,
+        public ?string $source = null,
         public ?Trace $trace = null,
         public ?Problem $previous = null,
     ) {}
@@ -238,14 +235,14 @@ final readonly class Problem implements JsonSerializable
 
     /**
      * The full document: `minimal()` plus `detail` as `class: message`,
-     * the origin, the source window, the trace, and the cause.
+     * the origin, the source line, the trace, and the cause.
      */
     public static function development(
         Throwable $exception,
         int $status,
         string $file,
         int $line,
-        ?SourceBlock $source,
+        ?string $source,
         Trace $trace,
         ?Problem $previous,
     ): self;
@@ -279,21 +276,7 @@ final readonly class Frame implements JsonSerializable
         public ?string $type = null,
         /** @var list<mixed>|null */
         public ?array $args = null,
-        public ?SourceBlock $source = null,
-    ) {}
-
-    #[Override]
-    public function jsonSerialize(): array;
-}
-
-/** @api */
-final readonly class SourceBlock implements JsonSerializable
-{
-    public function __construct(
-        public int $start,
-        public int $end,
-        /** @var list<string> */
-        public array $code,
+        public ?string $source = null,
     ) {}
 
     #[Override]
@@ -344,10 +327,7 @@ Serialization rules:
   `args: []` is a reported empty list and an absent `args` member means
   PHP did not report arguments (as with
   `zend.exception_ignore_args=On`). `source` is omitted only when `null`,
-  not when its `code` is empty or consists of blank-line strings.
-- `SourceBlock::jsonSerialize()` returns `{start, end, code}` in that
-  order. `start` and `end` are inclusive original file line numbers;
-  `code` is a list of strings, one per physical line in that interval.
+  not when it is an empty or whitespace-only string.
 - `Trace::jsonSerialize()` returns the frame list, so a `Trace` is
   exactly the value of the document's `trace` member.
 - `SanitizedObject` serializes as
@@ -404,19 +384,7 @@ Full, HTTP 500:
   "detail": "RuntimeException: Something broke",
   "file": "src/Service/Thing.php",
   "line": 42,
-  "source": {
-    "start": 39,
-    "end": 45,
-    "code": [
-      "        $thing = $this->load();",
-      "",
-      "        if (!$thing) {",
-      "            throw new RuntimeException('Something broke');",
-      "        }",
-      "",
-      "        return $thing;"
-    ]
-  },
+  "source": "            throw new RuntimeException('Something broke');",
   "trace": [
     {
       "file": "src/Http/Controller.php",
@@ -425,19 +393,7 @@ Full, HTTP 500:
       "class": "App\\Http\\Controller",
       "type": "->",
       "args": [],
-      "source": {
-        "start": 14,
-        "end": 20,
-        "code": [
-          "    public function index(): void",
-          "    {",
-          "        $thing = new Thing();",
-          "        $thing->run();",
-          "",
-          "        return;",
-          "    }"
-        ]
-      }
+      "source": "        $thing->run();"
     },
     {
       "file": "vendor/framework/router.php",
@@ -446,19 +402,7 @@ Full, HTTP 500:
       "class": "Framework\\Router",
       "type": "->",
       "args": [],
-      "source": {
-        "start": 85,
-        "end": 91,
-        "code": [
-          "    {",
-          "        $route = $this->match($request);",
-          "",
-          "        return $route->run($request);",
-          "    }",
-          "",
-          "}"
-        ]
-      }
+      "source": "        return $route->run($request);"
     }
   ]
 }
@@ -481,7 +425,7 @@ and inventing a URI would be worse than omitting it.
 ```
 Throwable::getTrace() ──▶ TraceFactory ──▶ Document\Trace
                             ├─▶ PathRelativizer   relativize
-                            ├─▶ SourceContext      windows (every frame)
+                            ├─▶ SourceContext      source lines (every frame)
                             └─▶ ArgumentSanitizer  args
                                   └─▶ SanitizedObject / SanitizedMap / lists
 ```
@@ -513,9 +457,7 @@ final class TraceFactory
 
 final class SourceContext
 {
-    private const int CONTEXT_RADIUS = 3;
-
-    public function window(string $absolutePath, int $line): ?SourceBlock;
+    public function line(string $absolutePath, int $line): ?string;
 }
 
 final class ArgumentSanitizer
@@ -525,9 +467,8 @@ final class ArgumentSanitizer
 ```
 
 `ExceptionHandler` builds the origin source with
-`window($originFile, $originLine)` and `TraceFactory` does the same for
-every frame. The radius is not configurable (decision 23), so
-`SourceContext` owns it and no caller passes it.
+`line($originFile, $originLine)` and `TraceFactory` does the same for
+every frame.
 
 Snippets are always **read** from the absolute path and **reported** with
 the relativized path. `SourceContext` never sees a relative path, and
@@ -555,35 +496,24 @@ that frame. `traceLimit` keeps the innermost N frames; dropping any
 frame sets `Trace::$truncated`, which `Problem` reports as
 `traceTruncated: true`.
 
-### Source windows
+### Source lines
 
-- The reported line and three physical lines on either side (`line ±3`),
-  clamped to the file, for the origin and every frame alike (decision 23).
-  A window has at most 7 lines. Near a file boundary, do not compensate
-  by taking extra lines from the other side.
-- One `SourceBlock`, serialized as
-  `{"start": <first line number>, "end": <last line number>, "code": <list of line strings>}`.
-  Bounds are inclusive, 1-based original file line numbers:
-  `start = max(1, line - 3)` and `end = min(file line count, line + 3)`.
-  The outer `line` still identifies the reported line; its zero-based
-  offset within the list is `line - source.start`.
-- Keep every line in the interval, including blank and whitespace-only
-  lines. Each `code` element is one line; a blank line is `""`.
-  Preserve leading indentation and trailing whitespace. Do not trim,
-  filter, dedent, number, or decorate the code.
-- A single empty source line is `code: [""]` and is still a valid,
-  present block. `end - start + 1` is the number of code elements.
-- A file that cannot be read (missing, unreadable, or not a regular file),
-  or a reported line outside the file, yields `null`. Serializers omit
-  `source` in that case. Missing context is distinct from a blank block.
-- The JSON array makes each line readable without escaped newline
-  characters; blank lines remain visible as empty strings.
+- The source line at the reported line, for the origin and every frame
+  alike (decision 23).
+- `source` is a single string: the physical line at the reported line
+  number, trimmed of surrounding whitespace. Do not otherwise filter,
+  dedent, number, or decorate it.
+- A blank or whitespace-only line is `""` and is still valid, present
+  source. Missing context is distinct from a blank line.
+- A file that cannot be read (missing, unreadable, or not a regular
+  file), or a reported line outside the file, yields `null`. Serializers
+  omit `source` in that case.
+- One string keeps the JSON free of escaped newlines and nested objects.
 
 Implementation: read the file once per distinct path with
-`file($path, FILE_IGNORE_NEW_LINES)`, slice the window without filtering
-or trimming, and use the resulting list of lines as `SourceBlock::code`.
-Caching per instance prevents re-reading a file that appears in several
-frames.
+`file($path, FILE_IGNORE_NEW_LINES)`, index the reported line, and
+`trim()` it. Caching per instance prevents re-reading a file that
+appears in several frames.
 
 ### Argument sanitizer
 
@@ -723,7 +653,7 @@ Response headers: `Content-Type: application/problem+json` only. No
 
 Encoding flags:
 `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR`.
-Invalid UTF-8 in source windows is substituted rather than failing, and
+Invalid UTF-8 in source lines is substituted rather than failing, and
 `JSON_THROW_ON_ERROR` makes the failure path explicit instead of
 returning `false`.
 
@@ -739,14 +669,12 @@ returning `false`.
     test method carrying `#[WithEnvironmentVariable(...)]` — the
     attribute is fixed per method, so a data provider cannot drive it,
     and `value: null` covers the unset case.
-  - `SourceContext`: fixtures on disk covering a full 7-line window,
-    windows at line 1 and EOF without compensating for the clamped side,
-    blank and whitespace-only lines (including at window boundaries),
-    a blank-only window, indentation and trailing whitespace preserved,
-    LF/CRLF line separators, missing or unreadable files, non-file paths,
-    and reported lines before the start or beyond EOF. Assert `SourceBlock`
-    bounds and exact code strings, and `null` only for unavailable context.
-    Also verify the existing per-instance file cache.
+  - `SourceContext`: fixtures on disk covering the first and last lines,
+    blank and whitespace-only lines, indentation and trailing whitespace
+    trimmed, LF/CRLF line separators, missing or unreadable files,
+    non-file paths, and reported lines before the start or beyond EOF.
+    Assert the exact source string, and `null` only for unavailable
+    context. Also verify the existing per-instance file cache.
   - `ArgumentSanitizer`: scalars, long strings, list and map arrays,
     `array_is_list()` divergence (`[0 => 'a', 2 => 'b']`), 50+ entries in
     both shapes, nesting past depth 5, cyclic object graphs,
@@ -762,12 +690,11 @@ returning `false`.
     `Trace::$truncated`, frames without a file, args omitted for a
     missing key and kept as an empty list for a reported empty list, and
     a frame whose file sits outside
-    the project directory — still carrying its `source` window.
+    the project directory — still carrying its `source` line.
   - Document DTOs: each `jsonSerialize()` shape, member ordering and
-    omission rules, null `source` omitted but blank source blocks retained,
-    `SourceBlock` serialized as `{start, end, code}` with line-array `code`, `traceTruncated`
-    present only when truncated, and `SanitizedMap`/`SanitizedObject`
-    payload shapes.
+    omission rules, null `source` omitted but blank source lines retained,
+    `traceTruncated` present only when truncated, and
+    `SanitizedMap`/`SanitizedObject` payload shapes.
   - `ExceptionHandler`: both modes, the status interface in and out of
     range, and chained exceptions.
 - Middleware integration tests use `nyholm/psr7`'s `Psr17Factory` with a

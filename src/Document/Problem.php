@@ -34,7 +34,7 @@ final readonly class Problem implements JsonSerializable
         public ?string $detail = null,
         public ?string $file = null,
         public ?int $line = null,
-        public ?SourceBlock $source = null,
+        public ?string $source = null,
         public ?Trace $trace = null,
         public ?Problem $previous = null,
     ) {}
@@ -56,7 +56,7 @@ final readonly class Problem implements JsonSerializable
 
     /**
      * The full document: everything `minimal()` carries, plus `detail`
-     * as `class: message`, the origin, the source window, the trace,
+     * as `class: message`, the origin, the source line, the trace,
      * and the cause.
      *
      *
@@ -67,7 +67,7 @@ final readonly class Problem implements JsonSerializable
         int $status,
         string $file,
         int $line,
-        ?SourceBlock $source,
+        ?string $source,
         Trace $trace,
         ?Problem $previous,
     ): self {

@@ -66,7 +66,7 @@ final class ExceptionHandler implements ExceptionHandlerInterface
             status: $status,
             file: $this->relativizer->relativize($exception->getFile()),
             line: $exception->getLine(),
-            source: $this->source->window($exception->getFile(), $exception->getLine()),
+            source: $this->source->line($exception->getFile(), $exception->getLine()),
             trace: $this->trace->frames($trace),
             previous: $previous === null ? null : $this->handle($previous),
         );

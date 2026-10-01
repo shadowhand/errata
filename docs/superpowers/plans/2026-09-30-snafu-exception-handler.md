@@ -4,17 +4,17 @@
 
 **Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with full and minimal modes.
 
-**Architecture:** Ten focused units. Value objects in `Snafu\Document\` own the JSON contract; `Snafu\Trace\` holds the plumbing that reads source windows, sanitizes arguments, and assembles frames; `Snafu\Path\PathRelativizer` turns absolute paths into project-relative ones; `Snafu\ExceptionHandler` maps a `Throwable` to a `Problem`; `Snafu\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
+**Architecture:** Ten focused units. Value objects in `Snafu\Document\` own the JSON contract; `Snafu\Trace\` holds the plumbing that reads source lines, sanitizes arguments, and assembles frames; `Snafu\Path\PathRelativizer` turns absolute paths into project-relative ones; `Snafu\ExceptionHandler` maps a `Throwable` to a `Problem`; `Snafu\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
 
 **Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-snafu-exception-handler-design.md` — read it alongside this plan; it records why each decision was made.
 
-> **Source-context amendments (2026-10-01, implemented):** The spec requires one `{start, end, code}` source
-> block, `code` as an array of source lines, the reported line ±3, and preserved blank lines. This supersedes the
-> `SourceLine` list, ±2 window,
-> blank-line stripping, and related signatures/tests throughout this original implementation plan. These tasks
-> describe the original design; the implementation now follows the amended spec.
+> **Source-context amendments (2026-10-01, implemented):** The spec requires `source` as a single string: the
+> source line at the reported line, trimmed of surrounding whitespace. This supersedes the `SourceLine`
+> list, ±2 window, blank-line stripping, the `{start, end, code}` block, and related signatures/tests throughout
+> this original implementation plan. These tasks describe the original design; the implementation now follows the
+> amended spec.
 
 ## Global Constraints
 
@@ -22,13 +22,13 @@ Copied from the spec; every task implicitly includes them.
 
 - PHP floor is 8.4 (`composer.json` `require.php` is the single source of truth and CI derives the CI version from it). Local dev runs 8.5.11 — never use an 8.5-only API (`array_first`, `|>`, `#[\NoDiscard]`).
 - Every class is `final` (mago `enforce-class-finality`).
-- Docblock `@api` on: `Mode`, `ExceptionHandler`, `ExceptionMiddleware`, `Http\StatusCodeInterface`, and all six `Document\` DTOs. Docblock `@internal` on every other class (mago `require-api-or-internal`).
+- Docblock `@api` on: `Mode`, `ExceptionHandler`, `ExceptionMiddleware`, `Http\StatusCodeInterface`, and all five `Document\` DTOs. Docblock `@internal` on every other class (mago `require-api-or-internal`).
 - Every overriding method carries `#[Override]`.
 - Full type hints on parameters, returns, and closures. Nullable parameters use explicit `?T` (PHP 8.4 deprecates implicit nullable).
 - 100% line coverage is enforced by `composer run test`. No unreachable line may exist in `src/`, because no test can cover it.
 - Test classes carry `#[CoversClass(...)]` (`phpunit.xml` sets `requireCoverageMetadata="true"`); test methods use the `test` prefix (verified: PHPUnit 13.3.6 `Util\Test::isTestMethod` still honours it).
 - Output is JSON only, media type `application/problem+json`, `type` is always `about:blank`, `title` is the recommended HTTP status phrase from `codeinc/http-reason-phrase-lookup`'s `HttpReasonPhraseLookup::getReasonPhrase()` (RFC 9457 §4.2.1), and `detail` carries the exception identity.
-- Source context is one `{start, end, code}` block with one code-array element per line, for the reported line ±3, clamped to the file, preserving blank lines and whitespace, for the origin and every frame.
+- Source context is the source line at the reported line, trimmed of surrounding whitespace, for the origin and every frame.
 - **There is no vendor detection.** No vendor flag, no vendor-directory config, no special case for third-party paths.
 - Document types are `JsonSerializable` DTOs. Bare PHP arrays appear only as *lists*, plus the two places PHP forces them: `jsonSerialize(): array` and `Throwable::getTrace()`'s input.
 - Argument truncation limits: depth 5, 50 items, 500-byte strings. Markers: `*depth limit*`, `*redacted*`, `*truncated*`, `... (N more items)`.
