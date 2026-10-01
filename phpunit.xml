@@ -6,6 +6,9 @@
          failOnAllIssues="true"
          displayDetailsOnAllIssues="true"
          requireCoverageMetadata="true">
+    <php>
+        <ini name="error_log" value="build/phpunit/error.log"/>
+    </php>
     <coverage>
         <report>
             <clover outputFile="build/phpunit/clover.xml"/>

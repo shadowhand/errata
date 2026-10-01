@@ -18,6 +18,7 @@
 ## Markdown
 
 - The maximum line width for Markdown documents should be 120 characters. (This document is exempt from this rule!)
+- Documents under `docs/superpowers/` are exempt from this rule.
 
 ## PHP
 
