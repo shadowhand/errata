@@ -96,6 +96,29 @@ argument) with the throwable under the conventional `exception` key, plus `metho
 query strings, and bodies are never logged. A logger that itself throws is reported with `error_log()` and the
 response is still sent.
 
+## Demos
+
+After running `composer install` (including development dependencies), start the demo router from the repository root:
+
+```sh
+php -S localhost:8000 demo/index.php
+```
+
+Open <http://localhost:8000/> for a centered grid of links. The same router serves all four demos, each intentionally
+returning a 500 `application/problem+json` response through `ExceptionMiddleware`:
+
+- `/minimal`: production-style output without the exception message, source, or trace.
+- `/full`: the same exception with development details.
+- `/recursion`: bounded recursive object calls with cyclic public properties and a truncated trace.
+- `/sensitive`: redacted parameter arguments and public properties wrapped in `SensitiveParameterValue`.
+
+You can also request a demo directly, for example with `curl -i http://localhost:8000/full`.
+
+Development demos enable exception arguments regardless of your `php.ini`. The sensitive demo accepts optional
+`DEMO_PASSWORD` and `DEMO_TOKEN` environment variables; its defaults are fake credentials. `#[SensitiveParameter]`
+protects trace arguments, not stored properties, exception messages, or source code. Use `SensitiveParameterValue`
+for sensitive public properties and never put real secrets in messages or source files.
+
 ## Development
 
 This project uses [Mago](https://mago.carthage.software/) for lint, formatting, and static analysis.

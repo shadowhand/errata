@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Runnable PHP development-server demos for minimal and full responses,
+  recursive object calls, and sensitive arguments and properties.
+- A centered demo index with a four-link grid and a single router serving
+  all demos.
+
 - `ExceptionMiddleware`, a PSR-15 middleware that answers any uncaught
   `Throwable` with an RFC 9457 `application/problem+json` document.
 - `ExceptionHandler`, which maps a `Throwable` to a `Problem` document.
