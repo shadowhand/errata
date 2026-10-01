@@ -23,8 +23,7 @@ final readonly class Frame implements JsonSerializable
         public ?string $type = null,
         /** @var list<mixed>|null */
         public ?array $args = null,
-        /** @var list<SourceLine> */
-        public array $source = [],
+        public ?SourceBlock $source = null,
     ) {}
 
     /**
@@ -59,7 +58,7 @@ final readonly class Frame implements JsonSerializable
             $frame['args'] = $this->args;
         }
 
-        if ($this->source !== []) {
+        if ($this->source !== null) {
             $frame['source'] = $this->source;
         }
 

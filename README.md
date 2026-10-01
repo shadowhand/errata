@@ -58,9 +58,11 @@ Full responses add `file`, `line`, `source`, `trace`, and, for chained exception
 Paths are relative to the application directory, which defaults to the Composer root package directory and can be
 overridden with the second `ExceptionHandler` argument.
 
-The exception's origin and every frame carry a five-line source window (the reported line ±2), clamped to the file,
-with blank lines removed and original line numbers preserved. Traces are capped at 30 frames (`traceLimit`), keeping
-the frames nearest the throw; a capped trace is flagged with `traceTruncated`.
+The exception's origin and every frame carry one `source` object shaped as `{start, end, code}`. `start` and `end`
+are inclusive file line numbers; `code` is an array with one string per source line. Empty strings represent blank
+lines. It covers the reported line ±3, clamped to the file, preserving indentation and whitespace. Unavailable source
+is omitted. Traces are capped at 30 frames (`traceLimit`), keeping the frames nearest the throw; a capped trace
+is flagged with `traceTruncated`.
 
 Frame arguments are included, truncated to depth 5, 50 items, and 500 bytes per string. Objects are reduced to a
 class name plus at most 50 public properties, with the remainder reported by the same `"*truncated*": "N more

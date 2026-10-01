@@ -65,23 +65,35 @@ final class ExceptionMiddlewareTest extends TestCase
         $this->assertSame($expected, $response);
     }
 
-    public function testItRespondsWithAProblemDocumentOnFailure(): void
+    public function testItRespondsWithAFullProblemDocumentOnFailure(): void
     {
-        $response = $this->middleware()->process($this->request(), $this->throws(new RuntimeException('boom', 5)));
+        $exception = new RuntimeException('boom', 5);
+        $response = $this->middleware(Mode::Full)->process($this->request(), $this->throws($exception));
 
         $this->assertSame(500, $response->getStatusCode());
         $this->assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
 
-        $this->assertSame(
-            [
-                'type' => 'about:blank',
-                'title' => 'Internal Server Error',
-                'status' => 500,
-                'code' => 5,
-                'detail' => 'RuntimeException',
-            ],
-            $this->document($response),
-        );
+        $document = $this->document($response);
+        /** @var array{detail: string, file: string, line: int, source: array{start: int, end: int, code: list<string>}, trace: list<mixed>} $document */
+
+        $this->assertArrayHasKey('detail', $document);
+        $this->assertSame('RuntimeException: boom', $document['detail']);
+        $this->assertArrayHasKey('file', $document);
+        $this->assertSame('tests/Middleware/ExceptionMiddlewareTest.php', $document['file']);
+        $this->assertArrayHasKey('line', $document);
+        $this->assertSame($exception->getLine(), $document['line']);
+        $this->assertArrayHasKey('source', $document);
+        $this->assertIsArray($document['source']);
+        $source = $document['source'];
+        $this->assertSame(['start', 'end', 'code'], array_keys($source));
+        $this->assertArrayHasKey('start', $source);
+        $this->assertSame($exception->getLine() - 3, $source['start']);
+        $this->assertArrayHasKey('end', $source);
+        $this->assertSame($exception->getLine() + 3, $source['end']);
+        $this->assertArrayHasKey('code', $source);
+        $this->assertIsArray($source['code']);
+        $this->assertArrayHasKey('trace', $document);
+        $this->assertIsArray($document['trace']);
     }
 
     public function testMinimalOmitsFullMembers(): void
@@ -92,22 +104,6 @@ final class ExceptionMiddlewareTest extends TestCase
         );
 
         $this->assertSame(['type', 'title', 'status', 'code', 'detail'], array_keys($this->document($response)));
-    }
-
-    public function testFullIncludesTheTraceAndOrigin(): void
-    {
-        $response = $this->middleware(Mode::Full)->process(
-            $this->request(),
-            $this->throws(new RuntimeException('boom')),
-        );
-
-        $document = $this->document($response);
-
-        $this->assertSame('RuntimeException: boom', $document['detail'] ?? '');
-        $this->assertSame('tests/Middleware/ExceptionMiddlewareTest.php', $document['file'] ?? '');
-        $this->assertIsArray($document['source'] ?? null);
-        $this->assertNotSame([], $document['source']);
-        $this->assertIsArray($document['trace'] ?? null);
     }
 
     public function testItUsesTheStatusFromTheException(): void

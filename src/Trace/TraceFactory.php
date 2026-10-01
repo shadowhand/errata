@@ -66,7 +66,7 @@ final class TraceFactory
             class: $this->string($entry, 'class'),
             type: $this->string($entry, 'type'),
             args: $this->args($entry),
-            source: $file === null || $line === null ? [] : $this->source->window($file, $line),
+            source: $file === null || $line === null ? null : $this->source->window($file, $line),
         );
     }
 
