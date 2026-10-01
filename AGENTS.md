@@ -15,6 +15,10 @@
 - Use conventional commits format when writing commit messages.
 - The maximum line width for commit bodies should be 120 characters.
 
+## GitHub
+
+- Pull request titles should be written using conventional commits format.
+
 ## Markdown
 
 - The maximum line width for Markdown documents should be 120 characters. (This document is exempt from this rule!)
