@@ -12,7 +12,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Snafu\Document\Problem;
-use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 
 use function is_array;
@@ -77,7 +76,7 @@ final class ProblemTest extends TestCase
     public function testDevelopmentCarriesEveryDevelopmentMember(): void
     {
         $previous = Problem::minimal(new RuntimeException('cause'), 500);
-        $source = new SourceBlock(start: 12, end: 12, code: ['    throw new RuntimeException();']);
+        $source = '    throw new RuntimeException();';
         $problem = Problem::development(
             exception: new RuntimeException('boom', 3),
             status: 422,
@@ -99,7 +98,7 @@ final class ProblemTest extends TestCase
                 'detail' => 'RuntimeException: boom',
                 'file' => 'src/Foo.php',
                 'line' => 12,
-                'source' => ['start' => 12, 'end' => 12, 'code' => ['    throw new RuntimeException();']],
+                'source' => '    throw new RuntimeException();',
                 'trace' => [],
                 'previous' => [
                     'type' => 'about:blank',
@@ -133,35 +132,32 @@ final class ProblemTest extends TestCase
         $this->assertArrayNotHasKey('traceTruncated', $serialized);
     }
 
-    public function testDevelopmentIncludesSourceWithEmptyCode(): void
+    public function testDevelopmentIncludesAnEmptySourceLine(): void
     {
         $problem = Problem::development(
             exception: new RuntimeException('boom'),
             status: 500,
             file: 'src/Foo.php',
             line: 1,
-            source: new SourceBlock(start: 1, end: 1, code: ['']),
+            source: '',
             trace: new Trace([], false),
             previous: null,
         );
 
-        $this->assertSame(['start' => 1, 'end' => 1, 'code' => ['']], self::json($problem)['source'] ?? null);
+        $this->assertSame('', self::json($problem)['source'] ?? null);
     }
 
-    public function testItIncludesSourceWithWhitespaceOnlyCodeWhenConstructedDirectly(): void
+    public function testItIncludesAWhitespaceOnlySourceLineWhenConstructedDirectly(): void
     {
         $problem = new Problem(
             type: 'about:blank',
             title: 'Internal Server Error',
             status: 500,
             code: 0,
-            source: new SourceBlock(start: 1, end: 2, code: [' \t ', '\t  ']),
+            source: ' \t ',
         );
 
-        $this->assertSame(
-            ['start' => 1, 'end' => 2, 'code' => [' \t ', '\t  ']],
-            self::json($problem)['source'] ?? null,
-        );
+        $this->assertSame(' \t ', self::json($problem)['source'] ?? null);
     }
 
     public function testDevelopmentFlagsATruncatedTrace(): void

@@ -12,7 +12,7 @@ use const FILTER_VALIDATE_BOOLEAN;
 /**
  * The document mode the handler renders.
  *
- * `Full` carries the message, origin, source windows, trace, and causes;
+ * `Full` carries the message, origin, source lines, trace, and causes;
  * `Minimal` carries the short exception class name and the code.
  *
  * @api

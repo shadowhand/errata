@@ -74,7 +74,7 @@ final class ExceptionMiddlewareTest extends TestCase
         $this->assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
 
         $document = $this->document($response);
-        /** @var array{detail: string, file: string, line: int, source: array{start: int, end: int, code: list<string>}, trace: list<mixed>} $document */
+        /** @var array{detail: string, file: string, line: int, source: string, trace: list<mixed>} $document */
 
         $this->assertArrayHasKey('detail', $document);
         $this->assertSame('RuntimeException: boom', $document['detail']);
@@ -83,15 +83,7 @@ final class ExceptionMiddlewareTest extends TestCase
         $this->assertArrayHasKey('line', $document);
         $this->assertSame($exception->getLine(), $document['line']);
         $this->assertArrayHasKey('source', $document);
-        $this->assertIsArray($document['source']);
-        $source = $document['source'];
-        $this->assertSame(['start', 'end', 'code'], array_keys($source));
-        $this->assertArrayHasKey('start', $source);
-        $this->assertSame($exception->getLine() - 3, $source['start']);
-        $this->assertArrayHasKey('end', $source);
-        $this->assertSame($exception->getLine() + 3, $source['end']);
-        $this->assertArrayHasKey('code', $source);
-        $this->assertIsArray($source['code']);
+        $this->assertSame('$exception = new RuntimeException(\'boom\', 5);', $document['source']);
         $this->assertArrayHasKey('trace', $document);
         $this->assertIsArray($document['trace']);
     }

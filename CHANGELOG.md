@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Full responses now report source context as one `{start, end, code}` block with one `code` array element per line.
-  It covers the reported line ±3, clamped to the file, with blank lines and whitespace preserved.
+- Full responses now report source context as a single `source` string: the source line at the reported line,
+  trimmed of surrounding whitespace.
 - Paths embedded in trace closure function names and anonymous class names are now relative to the application root.
 
 ### Added
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ExceptionHandler`, which maps a `Throwable` to a `Problem` document.
 - `Mode` with full and minimal modes, detected from
   `APP_ENV` and `APP_DEBUG`.
-- Full documents with message, origin, source blocks of up to seven lines,
+- Full documents with message, origin, source lines,
   relative paths, traces, and chained causes.
 - Trace frames with truncated frame arguments; `#[\SensitiveParameter]`
   values are redacted and `__toString()` is never invoked.

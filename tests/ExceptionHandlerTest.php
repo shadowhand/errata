@@ -10,7 +10,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Snafu\Document\Problem;
-use Snafu\Document\SourceBlock;
 use Snafu\Document\Trace;
 use Snafu\ExceptionHandler;
 use Snafu\Mode;
@@ -57,21 +56,18 @@ final class ExceptionHandlerTest extends TestCase
         $this->assertStringNotContainsString('ExceptionHandlerTest', $json);
     }
 
-    public function testFullCarriesTheMessageLocationAndWindow(): void
+    public function testFullCarriesTheMessageLocationAndSourceLine(): void
     {
         $exception = new RuntimeException('boom');
         $problem = $this->handler(Mode::Full)->handle($exception);
         $this->assertSame('RuntimeException: boom', $problem->detail);
         $this->assertSame('tests/ExceptionHandlerTest.php', $problem->file);
         $this->assertSame($exception->getLine(), $problem->line);
-        $this->assertInstanceOf(SourceBlock::class, $problem->source);
-        $this->assertSame($exception->getLine() - 3, $problem->source->start);
-        $this->assertSame($exception->getLine() + 3, $problem->source->end);
-        $this->assertContains('        $exception = new RuntimeException(\'boom\');', $problem->source->code);
+        $this->assertSame('$exception = new RuntimeException(\'boom\');', $problem->source);
         $document = $this->document($problem);
-        /** @var array{source: array{start: int, end: int, code: list<string>}} $document */
+        /** @var array{source: string} $document */
         $this->assertArrayHasKey('source', $document);
-        $this->assertSame($problem->source->jsonSerialize(), $document['source']);
+        $this->assertSame($problem->source, $document['source']);
         $this->assertInstanceOf(Trace::class, $problem->trace);
         $this->assertStringNotContainsString('traceTruncated', (string) json_encode($problem));
         $this->assertNull($problem->previous);
@@ -86,7 +82,7 @@ final class ExceptionHandlerTest extends TestCase
         $this->assertSame(500, $handler->handle(new ExceptionHandlerStatusFixture(600))->status);
     }
 
-    public function testMinimalOmitsTheCauseButFullNestsItWithSourceBlocks(): void
+    public function testMinimalOmitsTheCauseButFullNestsItWithSourceLines(): void
     {
         $exception = $this->chainedFailure();
 
@@ -104,12 +100,8 @@ final class ExceptionHandlerTest extends TestCase
 
         $this->assertInstanceOf(LogicException::class, $cause);
         $this->assertSame($cause->getLine(), $previous->line);
-        $this->assertInstanceOf(SourceBlock::class, $problem->source);
-        $this->assertInstanceOf(SourceBlock::class, $previous->source);
-        $this->assertSame($exception->getLine() - 3, $problem->source->start);
-        $this->assertSame($cause->getLine() - 3, $previous->source->start);
-        $this->assertContains('        return new RuntimeException(\'outer\', 0, $previous);', $problem->source->code);
-        $this->assertContains('        $previous = new LogicException(\'inner\');', $previous->source->code);
+        $this->assertSame('return new RuntimeException(\'outer\', 0, $previous);', $problem->source);
+        $this->assertSame('$previous = new LogicException(\'inner\');', $previous->source);
 
         $serializedProblem = $this->document($problem);
         /** @var array{previous: array<string, mixed>} $serializedProblem */
@@ -139,7 +131,7 @@ final class ExceptionHandlerTest extends TestCase
         $outer = $this->handler(Mode::Full)->handle(new RuntimeException('outer', 0, $missingSource));
         $unavailablePrevious = $outer->previous;
 
-        $this->assertInstanceOf(SourceBlock::class, $outer->source);
+        $this->assertIsString($outer->source);
         $this->assertInstanceOf(Problem::class, $unavailablePrevious);
         $this->assertNull($unavailablePrevious->source);
         $serializedOuter = $this->document($outer);
