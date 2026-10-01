@@ -6,7 +6,7 @@ php-version = "8.4.0"
 
 [source]
 workspace = "."
-paths = ["src/", "tests/"]
+paths = ["src/", "tests/", "demo/"]
 includes = ["vendor"]
 excludes = ["tests/Fixtures"]
 
@@ -20,6 +20,8 @@ preset = "default"
 integrations = ["phpunit"]
 
 [linter.rules]
+file-name = { exclude = ["demo/**/*.php"] }
+no-ini-set = { exclude = ["demo/bootstrap.php"] }
 assertion-style = { style = "this" }
 too-many-methods = { exclude = ["tests/**/*.php"] }
 ambiguous-constant-access = { enabled = true }
