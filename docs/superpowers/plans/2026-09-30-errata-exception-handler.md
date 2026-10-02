@@ -4,9 +4,9 @@
 
 **Goal:** Build a PHP 8.4 library that turns any uncaught `Throwable` into an RFC 9457 `application/problem+json` document, logs it via PSR-3, and exposes it through a PSR-15 middleware — with full and minimal modes.
 
-**Architecture:** Ten focused units. Value objects in `Errata\Document\` own the JSON contract; `Errata\Trace\` holds the plumbing that reads source lines, types arguments, and assembles frames; `Errata\Path\PathRelativizer` turns absolute paths into project-relative ones; `Errata\ExceptionHandler` maps a `Throwable` to a `Problem`; `Errata\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
+**Architecture:** Nine focused units. Value objects in `Errata\Document\` own the JSON contract; `Errata\Trace\` holds the plumbing that reads source lines, types arguments, and assembles frames; `Errata\ExceptionHandler` maps a `Throwable` to a `Problem`; `Errata\Middleware\ExceptionMiddleware` catches, logs, encodes, and responds. Every unit is independently testable, which the 100% coverage gate requires.
 
-**Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `composer-runtime-api` (`Composer\InstalledVersions`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
+**Tech Stack:** PHP 8.4, PSR-7 (`psr/http-factory`), PSR-15 (`psr/http-server-middleware`), PSR-3 (`psr/log`), `codeinc/http-reason-phrase-lookup` (`CodeInc\HttpReasonPhraseLookup\HttpReasonPhraseLookup`), PHPUnit 13.3, Mago for lint/analyze/format, `nyholm/psr7` for PSR-7 test doubles.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-errata-exception-handler-design.md` — read it alongside this plan; it records why each decision was made.
 
@@ -15,6 +15,13 @@
 > list, ±2 window, blank-line stripping, the `{start, end, code}` block, and related signatures/tests throughout
 > this original implementation plan. These tasks describe the original design; the implementation now follows the
 > amended spec.
+
+> **Path-handling amendments (2026-10-01, implemented):** Paths are reported exactly as PHP provides them. The
+> `PathRelativizer` unit (originally Task 4), the `Errata\Path\` namespace, the `$projectDir` argument, and the
+> `composer-runtime-api` dependency are removed; `file` is `Throwable::getFile()` / the trace entry's `file`,
+> verbatim, and paths embedded in closure and anonymous-class names are left as PHP generates them. This supersedes
+> the relativization steps in the tasks below. The tasks describe the original design; the implementation now
+> follows the amended spec.
 
 ## Global Constraints
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Errata\Tests\Trace;
 
 use Errata\Document\Trace;
-use Errata\Path\PathRelativizer;
 use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
@@ -43,12 +42,7 @@ final class TraceFactoryTest extends TestCase
     protected function setUp(): void
     {
         $this->root = dirname(path: __DIR__, levels: 2);
-        $this->factory = new TraceFactory(
-            new PathRelativizer($this->root),
-            new SourceContext(),
-            new ArgumentTyper(),
-            traceLimit: 30,
-        );
+        $this->factory = new TraceFactory(new SourceContext(), new ArgumentTyper(), traceLimit: 30);
     }
 
     public function testItKeepsTheInnermostFrameFirst(): void
@@ -64,13 +58,13 @@ final class TraceFactoryTest extends TestCase
         $this->assertSame(
             [
                 [
-                    'file' => 'tests/Fixtures/source/window.php',
+                    'file' => $this->root . self::ROOT_FIXTURE,
                     'line' => 5,
                     'function' => 'inner',
                     'source' => '$alpha = 1;',
                 ],
                 [
-                    'file' => 'src/Outer.php',
+                    'file' => $this->root . '/src/Outer.php',
                     'line' => 3,
                     'function' => 'outer',
                 ],
@@ -108,12 +102,12 @@ final class TraceFactoryTest extends TestCase
 
         $this->assertNull($trace->frames[0]->source ?? null);
         $this->assertSame(
-            [['file' => 'tests/Fixtures/source/window.php', 'function' => 'inner']],
+            [['file' => $this->root . self::ROOT_FIXTURE, 'function' => 'inner']],
             $this->serialize($trace),
         );
     }
 
-    public function testItRelativizesPathsEmbeddedInClosureNames(): void
+    public function testItKeepsPathsEmbeddedInClosureNamesVerbatim(): void
     {
         $trace = $this->factory->frames([
             [
@@ -128,14 +122,14 @@ final class TraceFactoryTest extends TestCase
 
         $this->assertSame(
             [
-                ['line' => 12, 'function' => '{closure:demo/full.php:12}'],
-                ['line' => 13, 'function' => "{closure:demo/full\nview.php:13}"],
+                ['line' => 12, 'function' => '{closure:' . $this->root . '/demo/full.php:12}'],
+                ['line' => 13, 'function' => '{closure:' . $this->root . "/demo/full\nview.php:13}"],
             ],
             $this->serialize($trace),
         );
     }
 
-    public function testItRelativizesPathsEmbeddedInAnonymousClassNames(): void
+    public function testItKeepsPathsEmbeddedInAnonymousClassNamesVerbatim(): void
     {
         $trace = $this->factory->frames([
             [
@@ -162,13 +156,20 @@ final class TraceFactoryTest extends TestCase
             [
                 [
                     'line' => 36,
-                    'class' => 'Psr\\Http\\Server\\RequestHandlerInterface@anonymous' . "\0demo/bootstrap.php:36$0",
+                    'class' =>
+                        'Psr\\Http\\Server\\RequestHandlerInterface@anonymous'
+                            . "\0"
+                            . $this->root
+                            . '/demo/bootstrap.php:36$0',
                     'type' => '->',
                 ],
                 [
                     'line' => 37,
                     'class' =>
-                        'Psr\\Http\\Server\\RequestHandlerInterface@anonymous' . "\0demo/bootstrap\nhandler.php:37$0",
+                        'Psr\\Http\\Server\\RequestHandlerInterface@anonymous'
+                            . "\0"
+                            . $this->root
+                            . "/demo/bootstrap\nhandler.php:37$0",
                     'type' => '->',
                 ],
             ],
@@ -260,7 +261,7 @@ final class TraceFactoryTest extends TestCase
 
         $this->assertNull($trace->frames[0]->source ?? null);
         $this->assertSame(
-            [['file' => 'tests/Fixtures/source/window.php', 'line' => 900, 'function' => 'inner']],
+            [['file' => $this->root . self::ROOT_FIXTURE, 'line' => 900, 'function' => 'inner']],
             $this->serialize($trace),
         );
     }

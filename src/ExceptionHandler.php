@@ -6,7 +6,6 @@ namespace Errata;
 
 use Errata\Document\Problem;
 use Errata\Http\StatusCodeInterface;
-use Errata\Path\PathRelativizer;
 use Errata\Trace\ArgumentTyper;
 use Errata\Trace\SourceContext;
 use Errata\Trace\TraceFactory;
@@ -22,13 +21,11 @@ final readonly class ExceptionHandler implements ExceptionHandlerInterface
 {
     private const int DEFAULT_TRACE_LIMIT = 30;
 
-    private PathRelativizer $relativizer;
     private SourceContext $source;
     private TraceFactory $trace;
 
     public function __construct(
         private Mode $mode,
-        ?string $projectDir = null,
         int $traceLimit = self::DEFAULT_TRACE_LIMIT,
     ) {
         // Negative values MUST be clamped, otherwise array_slice() will count from the end.
@@ -36,9 +33,8 @@ final readonly class ExceptionHandler implements ExceptionHandlerInterface
             $traceLimit = 0;
         }
 
-        $this->relativizer = new PathRelativizer($projectDir);
         $this->source = new SourceContext();
-        $this->trace = new TraceFactory($this->relativizer, $this->source, new ArgumentTyper(), $traceLimit);
+        $this->trace = new TraceFactory($this->source, new ArgumentTyper(), $traceLimit);
     }
 
     #[Override]
@@ -58,7 +54,7 @@ final readonly class ExceptionHandler implements ExceptionHandlerInterface
         return Problem::full(
             exception: $exception,
             status: $status,
-            file: $this->relativizer->relativize($exception->getFile()),
+            file: $exception->getFile(),
             line: $exception->getLine(),
             source: $this->source->line($exception->getFile(), $exception->getLine()),
             trace: $this->trace->frames($trace),

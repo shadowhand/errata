@@ -53,9 +53,9 @@ name, and full responses set `detail` to `class: message`.
 
 ## Traces
 
-Paths are relative to the application directory, which defaults to the Composer root package directory and can be
-overridden with the second `ExceptionHandler` argument. Paths embedded in PHP closure function names and anonymous
-class names are also made relative when they point inside the application directory.
+Paths are reported exactly as PHP provides them: absolute and unmodified. The origin `file` is the exception's own
+file, and each frame `file` is the path from the stack trace; paths embedded in PHP closure function names and
+anonymous class names are left as PHP generates them.
 
 The exception's origin and every frame carry one `source` string: the source line at the reported `line`, trimmed
 of surrounding whitespace. A blank line is an empty string. Unavailable source is omitted. Traces are capped at

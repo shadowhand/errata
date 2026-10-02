@@ -61,7 +61,7 @@ final class ExceptionHandlerTest extends TestCase
         $exception = new RuntimeException('boom');
         $problem = $this->handler(Mode::Full)->handle($exception);
         $this->assertSame('RuntimeException: boom', $problem->detail);
-        $this->assertSame('tests/ExceptionHandlerTest.php', $problem->file);
+        $this->assertSame($exception->getFile(), $problem->file);
         $this->assertSame($exception->getLine(), $problem->line);
         $this->assertSame('$exception = new RuntimeException(\'boom\');', $problem->source);
         $document = $this->document($problem);
@@ -94,11 +94,11 @@ final class ExceptionHandlerTest extends TestCase
         $this->assertInstanceOf(Problem::class, $previous);
         $this->assertSame('LogicException: inner', $previous->detail);
         $this->assertSame('Internal Server Error', $previous->title);
-        $this->assertSame('tests/ExceptionHandlerTest.php', $previous->file);
 
         $cause = $exception->getPrevious();
 
         $this->assertInstanceOf(LogicException::class, $cause);
+        $this->assertSame($cause->getFile(), $previous->file);
         $this->assertSame($cause->getLine(), $previous->line);
         $this->assertSame('return new RuntimeException(\'outer\', 0, $previous);', $problem->source);
         $this->assertSame('$previous = new LogicException(\'inner\');', $previous->source);
@@ -121,7 +121,7 @@ final class ExceptionHandlerTest extends TestCase
         };
         $unavailable = $this->handler(Mode::Full)->handle($missingSource);
 
-        $this->assertSame('missing-source.php', $unavailable->file);
+        $this->assertSame($this->root . '/missing-source.php', $unavailable->file);
         $this->assertSame(1, $unavailable->line);
         $this->assertNull($unavailable->source);
         $this->assertArrayNotHasKey('source', $this->document($unavailable));
@@ -211,6 +211,6 @@ final class ExceptionHandlerTest extends TestCase
 
     private function handler(Mode $mode, int $traceLimit = 30): ExceptionHandler
     {
-        return new ExceptionHandler($mode, projectDir: $this->root, traceLimit: $traceLimit);
+        return new ExceptionHandler($mode, traceLimit: $traceLimit);
     }
 }

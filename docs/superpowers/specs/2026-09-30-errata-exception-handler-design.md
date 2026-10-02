@@ -25,6 +25,20 @@ markers. Because no value ever reaches the trace, there is nothing to truncate, 
 to avoid invoking, and no redaction to perform; `SanitizedMap`, `SanitizedObject`, and `ArgumentSanitizer` are
 removed. The sections below describe the current contract, and the implementation follows it.
 
+## Path-handling removal — 2026-10-01
+
+Paths are reported exactly as PHP provides them. The origin `file` is `Throwable::getFile()` and each frame `file` is the
+trace entry's `file`, verbatim: absolute, with platform-native separators, unnormalized. Paths embedded in closure
+function names and anonymous class names are likewise left as PHP generates them.
+
+This removes `Errata\Path\PathRelativizer`, the `Errata\Path\` namespace, the `$projectDir` constructor argument, and
+the `composer-runtime-api` dependency (`Composer\InstalledVersions`). `SourceContext` still reads the file at the
+reported path — reading source is not path transformation — so it continues to receive the absolute path unchanged.
+
+The trade-off is deliberate: full mode now exposes the deployment's absolute paths, which relativization previously
+hid. Full mode is the development mode and already carries messages and source lines; minimal mode still leaks
+nothing. The sections below describe the current contract, and the implementation follows it.
+
 ## Purpose
 
 A small library that turns any uncaught `Throwable` in a JSON API into a
@@ -58,7 +72,7 @@ Success criteria:
    `HttpReasonPhraseLookup::getReasonPhrase()`, short exception class
    name in `detail`, and code only.
 6. Full: additionally `detail` as `class: message`, file, line, trace.
-7. Trace paths are relative to the application directory.
+7. Trace paths are reported exactly as PHP provides them: absolute and unmodified.
 8. Context is the source line at the reported line, for the origin and
    for every frame alike.
 9. Context is one source line, trimmed of surrounding whitespace.
@@ -79,7 +93,7 @@ later changes.
 | 7 | Vendor detection | None: no vendor flag, no vendor-directory config; every frame is treated identically |
 | 8 | Frame order | Innermost-first — PHP's own `getTrace()` order, nothing reversed |
 | 9 | Frame arguments | Included as types only; `#[\SensitiveParameter]` unwrapped to the protected value's type; omitted when PHP does not report them |
-| 10 | Path base | Composer-derived default, individually overridable |
+| 10 | Path reporting | Verbatim from PHP; no relativization, no project directory |
 | 11 | Trace length | Capped, default 30 frames, keeps the innermost frames |
 | 12 | Mode source | `APP_ENV`, then `APP_DEBUG`, then Minimal |
 | 13 | Non-500 status | Opt-in `StatusCodeInterface`; interface only, no shipped exception classes |
@@ -101,6 +115,9 @@ later changes.
 
 Known, accepted consequences:
 
+- Decision 10 reports absolute paths, so full mode exposes the deployment's directory layout and possibly a
+  username. Relativization previously hid this; the simplification is judged worth it because full mode already
+  carries messages and source lines, and minimal mode leaks nothing.
 - Decision 14 flattens `PDOException`'s SQLSTATE string code to `0`.
   Preserving it would make the member a `int|string` union.
 - Decision 8 keeps PHP's own order, which is already innermost-first;
@@ -130,7 +147,6 @@ src/
   Document/Problem.php                   final readonly, JsonSerializable
   Document/Trace.php                     final readonly, JsonSerializable
   Document/Frame.php                     final readonly, JsonSerializable
-  Path/PathRelativizer.php               final class
   Trace/TraceFactory.php                 final class
   Trace/SourceContext.php                final class
   Trace/ArgumentTyper.php                final class
@@ -145,7 +161,7 @@ produces it.
 Every class is `final` (mago `enforce-class-finality`). Document DTOs,
 `Mode`, `ExceptionHandler`, `ExceptionHandlerInterface`,
 `ExceptionMiddleware`, and `StatusCodeInterface` are marked `@api`;
-`Path/`, `Trace/`, and the internal members of the rest are marked
+`Trace/` and the internal members of the rest are marked
 `@internal` (mago `require-api-or-internal`). `Problem` is `@api`
 because it is the return type of `ExceptionHandlerInterface::handle()`
 and holds `Trace` and `Frame`; marking it internal would
@@ -190,7 +206,6 @@ final class ExceptionHandler implements ExceptionHandlerInterface
 {
     public function __construct(
         private Mode $mode,
-        private ?string $projectDir = null,
         private int $traceLimit = 30,
     ) {}
 
@@ -361,12 +376,12 @@ Full, HTTP 500:
   "status": 500,
   "code": 0,
   "detail": "RuntimeException: Something broke",
-  "file": "src/Service/Thing.php",
+  "file": "/srv/app/src/Service/Thing.php",
   "line": 42,
   "source": "            throw new RuntimeException('Something broke');",
   "trace": [
     {
-      "file": "src/Http/Controller.php",
+      "file": "/srv/app/src/Http/Controller.php",
       "line": 17,
       "function": "index",
       "class": "App\\Http\\Controller",
@@ -375,7 +390,7 @@ Full, HTTP 500:
       "source": "        $thing->run();"
     },
     {
-      "file": "vendor/framework/router.php",
+      "file": "/srv/app/vendor/framework/router.php",
       "line": 88,
       "function": "dispatch",
       "class": "Framework\\Router",
@@ -394,7 +409,7 @@ as RFC 9457 §4.2.1 requires when `type` is `about:blank`; a status with
 no phrase there (for example 599) falls back to the status code as a
 string. The exception identity is in `detail`: the
 short (unqualified) class name in minimal mode, `class: message` in
-full mode. `file`, `line`, and trace are the full-only members.
+full mode. `file`, `line`, and trace are the full-only members. `file` is the absolute path PHP reports, verbatim.
 
 `instance` is omitted: there is no request-id infrastructure to point at,
 and inventing a URI would be worse than omitting it.
@@ -403,7 +418,6 @@ and inventing a URI would be worse than omitting it.
 
 ```
 Throwable::getTrace() ──▶ TraceFactory ──▶ Document\Trace
-                            ├─▶ PathRelativizer   relativize
                             ├─▶ SourceContext      source lines (every frame)
                             └─▶ ArgumentTyper      argument types
 ```
@@ -421,7 +435,6 @@ Collaborator signatures (all `@internal`):
 final class TraceFactory
 {
     public function __construct(
-        private PathRelativizer $relativizer,
         private SourceContext $source,
         private ArgumentTyper $types,
         private int $traceLimit,
@@ -448,9 +461,9 @@ final class ArgumentTyper
 `line($originFile, $originLine)` and `TraceFactory` does the same for
 every frame.
 
-Snippets are always **read** from the absolute path and **reported** with
-the relativized path. `SourceContext` never sees a relative path, and
-`PathRelativizer::relativize()` never touches the filesystem.
+Snippets are **read** from the path PHP reports, and that same path is
+**reported** verbatim. `SourceContext` reads the file; it does not
+transform the path.
 
 Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 `source`.
@@ -458,7 +471,7 @@ Per-frame members: `file`, `line`, `function`, `class`, `type`, `args`,
 - `file`/`line`/`source` are omitted when the frame has no file
   (internal functions, `call_user_func` frames).
 - `class` and `type` are omitted for plain function calls.
-- PHP embeds source paths in closure function names (`{closure:/absolute/file.php:line}`) and anonymous class names (after a NUL byte, before the `:line$ordinal` suffix). Relativize those embedded paths when they are under the application directory, preserving the surrounding PHP-generated name; paths outside it keep `PathRelativizer`'s absolute-path behavior.
+- PHP embeds source paths in closure function names (`{closure:/absolute/file.php:line}`) and anonymous class names (after a NUL byte, before the `:line$ordinal` suffix). Those names are reported exactly as PHP generates them, embedded paths included.
 - `type` is `->` for instance method calls and `::` for static calls,
   matching the keys PHP itself provides in a trace entry.
 - `args` is present only when PHP reported arguments for the frame, and is a list of type names (see
@@ -522,31 +535,16 @@ Rules:
   `__construct`, `getValue`, `__debugInfo`.
 - There is no depth, item, or length limit, because no value is emitted.
 
-### Path relativization
+### Path reporting
 
-```php
-final class PathRelativizer
-{
-    public function __construct(?string $projectDir = null);
-    public function relativize(string $absolutePath): string;
-}
-```
+`file` is reported verbatim. The origin `file` is `Throwable::getFile()`;
+each frame `file` is the trace entry's `file`. Neither is normalized, made
+relative, or separator-converted, so the value is exactly what PHP put in
+the stack trace. There is no project directory and no path configuration.
 
-`$projectDir` defaults to
-`Composer\InstalledVersions::getRootPackage()['install_path']`, else
-`getcwd()`; if `Composer\InstalledVersions` does not exist (a
-non-Composer autoloader) it falls back to `getcwd()`.
-
-Normalization is mandatory: Composer returns unnormalized paths.
-Verified on this machine, `getRootPackage()['install_path']` is
-`/Users/…/errata/vendor/composer/../../`. `realpath()` is applied first;
-if it returns `false` (path does not exist) a lexical normalization
-collapses `.` and `..` segments.
-
-`relativize()` strips the project-directory prefix and converts
-`DIRECTORY_SEPARATOR` to `/`, yielding `src/Foo.php`. Paths outside the
-project directory are returned absolute: a
-`../../../../usr/lib/php/…` chain is noise, not information.
+`SourceContext` still receives that absolute path, because reading a
+source line requires the real path; it performs no transformation of its
+own.
 
 ## Status resolution
 
@@ -643,16 +641,12 @@ returning `false`.
     `array_is_list()` divergence (`[0 => 'a', 2 => 'b']`), objects,
     closures, enums, open and closed resources, and
     `SensitiveParameterValue` unwrapping to a scalar and to an array.
-  - `PathRelativizer`: a path inside the project directory, a path
-    outside it, a sibling directory whose name merely starts with the
-    project directory name, and an unnormalized Composer path. The
-    Composer default is exercised by constructing with no argument.
   - `TraceFactory`: synthetic trace arrays (no dependence on
     `zend.exception_ignore_args`), innermost-first ordering, the frame cap and
     `Trace::$truncated`, frames without a file, args omitted for a
     missing key and kept as an empty list for a reported empty list, and
-    a frame whose file sits outside
-    the project directory — still carrying its `source` line.
+    paths reported verbatim, including those embedded in closure and
+    anonymous-class names.
   - Document DTOs: each `jsonSerialize()` shape, member ordering and
     omission rules, null `source` omitted but blank source lines retained,
     and `truncated` present only when truncated.

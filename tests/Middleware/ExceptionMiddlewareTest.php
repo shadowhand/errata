@@ -79,7 +79,7 @@ final class ExceptionMiddlewareTest extends TestCase
         $this->assertArrayHasKey('detail', $document);
         $this->assertSame('RuntimeException: boom', $document['detail']);
         $this->assertArrayHasKey('file', $document);
-        $this->assertSame('tests/Middleware/ExceptionMiddlewareTest.php', $document['file']);
+        $this->assertSame($exception->getFile(), $document['file']);
         $this->assertArrayHasKey('line', $document);
         $this->assertSame($exception->getLine(), $document['line']);
         $this->assertArrayHasKey('source', $document);
@@ -234,12 +234,7 @@ final class ExceptionMiddlewareTest extends TestCase
         ?LoggerInterface $logger = null,
         string $logLevel = LogLevel::ERROR,
     ): ExceptionMiddleware {
-        return new ExceptionMiddleware(
-            $this->factory,
-            new ExceptionHandler($mode, projectDir: $this->root),
-            $logger,
-            $logLevel,
-        );
+        return new ExceptionMiddleware($this->factory, new ExceptionHandler($mode), $logger, $logLevel);
     }
 
     private function request(): ServerRequestInterface

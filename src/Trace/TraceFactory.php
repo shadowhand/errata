@@ -6,7 +6,6 @@ namespace Errata\Trace;
 
 use Errata\Document\Frame;
 use Errata\Document\Trace;
-use Errata\Path\PathRelativizer;
 
 use function array_key_exists;
 use function array_map;
@@ -16,7 +15,6 @@ use function count;
 use function is_array;
 use function is_int;
 use function is_string;
-use function preg_replace_callback;
 
 /**
  * Assembles the trace section from PHP's raw trace array.
@@ -25,13 +23,7 @@ use function preg_replace_callback;
  */
 final class TraceFactory
 {
-    /** Patterns for source paths embedded in PHP-generated backtrace names. */
-    private const string CLOSURE_PATH_PATTERN = '/(?<=\\{closure:).+(?=:\\d+\\}$)/s';
-
-    private const string ANONYMOUS_CLASS_PATH_PATTERN = '/(?<=\\x00).+(?=:\\d+\\$\\d+$)/s';
-
     public function __construct(
-        private readonly PathRelativizer $relativizer,
         private readonly SourceContext $source,
         private readonly ArgumentTyper $types,
         private readonly int $traceLimit,
@@ -66,55 +58,14 @@ final class TraceFactory
         $line = $this->int($entry, 'line');
 
         return new Frame(
-            file: $file === null ? null : $this->relativizer->relativize($file),
+            file: $file,
             line: $line,
-            function: $this->functionName($entry),
-            class: $this->className($entry),
+            function: $this->string($entry, 'function'),
+            class: $this->string($entry, 'class'),
             type: $this->string($entry, 'type'),
             args: $this->args($entry),
             source: $file === null || $line === null ? null : $this->source->line($file, $line),
         );
-    }
-
-    /**
-     * @param array<string, mixed> $entry
-     */
-    private function functionName(array $entry): ?string
-    {
-        $function = $this->string($entry, 'function');
-
-        if ($function === null) {
-            return null;
-        }
-
-        return $this->relativizeEmbeddedPath($function, self::CLOSURE_PATH_PATTERN);
-    }
-
-    /**
-     * @param array<string, mixed> $entry
-     */
-    private function className(array $entry): ?string
-    {
-        $class = $this->string($entry, 'class');
-
-        if ($class === null) {
-            return null;
-        }
-
-        return $this->relativizeEmbeddedPath($class, self::ANONYMOUS_CLASS_PATH_PATTERN);
-    }
-
-    private function relativizeEmbeddedPath(string $name, string $pattern): string
-    {
-        return preg_replace_callback($pattern, $this->relativizePath(...), $name) ?? $name;
-    }
-
-    /**
-     * @param array<array-key, string> $matches
-     */
-    private function relativizePath(array $matches): string
-    {
-        return $this->relativizer->relativize($matches[0] ?? '');
     }
 
     /**
