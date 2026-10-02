@@ -1,3 +1,7 @@
+<div style="text-align:center;margin:0 auto;">
+    <img src="docs/errata-banner.jpg" style="width:100%;max-width:1200px" alt="Errata Banner"/>
+</div>
+
 # Errata
 
 📜 Exceptional error handler for JSON APIs.
