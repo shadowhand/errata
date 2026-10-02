@@ -26,24 +26,17 @@ $middleware = new ExceptionMiddleware(
 );
 ```
 
-Register it as the outermost PSR-15 middleware so it sees everything the rest of the stack throws.
+**Register it as the outermost PSR-15 middleware so it sees everything the rest of the stack throws.**
 
 ## Modes
 
 `Mode::fromEnv()` reads `APP_ENV`, then `APP_DEBUG`:
 
-| `APP_ENV` | `APP_DEBUG` | Mode |
-|-----------|-------------|------|
-| `dev`, `development`, `local` | any | full |
-| anything else | `1`, `true`, `on`, `yes` | full |
-| anything else | anything else | minimal |
+- If `APP_ENV` is `dev`, `development`, or `local` → **Full**
+- If `APP_DEBUG` evaluates as `true` (is `on`, `yes`, `1`, etc) → **Full**
+- Otherwise → **Minimal**
 
-Anything unrecognised, including unset variables, is minimal: a mode that leaks internals is never chosen by
-accident. Pass a `Mode` case explicitly to bypass detection.
-
-`title` is the recommended HTTP status phrase for the document's status, as RFC 9457 §4.2.1 requires when `type`
-is `about:blank`. The exception identity travels in `detail`: minimal responses carry the short exception class
-name, and full responses set `detail` to `class: message`.
+Anything unrecognised, including unset variables, is **Minimal**. Pass a `Mode` case explicitly to bypass detection.
 
 Minimal responses:
 
@@ -51,7 +44,12 @@ Minimal responses:
 {"type":"about:blank","title":"Internal Server Error","status":500,"code":0,"detail":"RuntimeException"}
 ```
 
-Full responses add `file`, `line`, `source`, `trace`, and, for chained exceptions, `previous`.
+Full responses add `file`, `line`, `source`, `trace`, and, for chained exceptions, `previous`. Full responses will
+also be pretty printed.
+
+`title` is the recommended HTTP status phrase for the document's status, as RFC 9457 §4.2.1 requires when `type`
+is `about:blank`. The exception identity travels in `detail`: minimal responses carry the short exception class
+name, and full responses set `detail` to `class: message`.
 
 ## Traces
 
