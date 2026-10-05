@@ -3,6 +3,25 @@
     "description": "Exceptional error handler for JSON APIs",
     "license": "MIT",
     "type": "library",
+    "keywords": [
+        "api",
+        "api-problem",
+        "error",
+        "error-handler",
+        "error-handling",
+        "exception",
+        "exception-handler",
+        "http",
+        "json",
+        "middleware",
+        "problem",
+        "problem-details",
+        "problem-json",
+        "psr-15",
+        "psr-7",
+        "rfc9457",
+        "throwable"
+    ],
     "authors": [
         {
             "name": "Woody Gilk",
