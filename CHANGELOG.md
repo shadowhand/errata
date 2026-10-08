@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `Origin` now accepts `$appDir` and `$vendorDir` parameters directly, instead of `Root` object. This makes
   application detection more explicit and reliable, without depending on additional packages.
+- `Fingerprint` now accepts an `$appDir` parameter, instead of `Root` object. This makes relative path fingerprinting
+  more explicitly opt-in.
 
 ## [0.1.0] - 2026-10-05
 

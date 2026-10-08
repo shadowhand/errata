@@ -101,17 +101,10 @@ Additional constructor options:
   are stable across systems.
 - `Origin` takes `appDir` and `vendorDir` to allow picking an application-specific origin by finding the first
   `Location` that is inside the `appDir` and *not* inside the `vendorDir`.
-- `Fingerprint` takes a `Root`.
+- `Fingerprint` takes `appDir` to make the file path relative for increased fingerprint stability.
 
 ### Trace locations
 
 `Errata\Trace\Location` represents one entry in a throwable's stack trace. A location list starts with the
 throwable's own file and line, followed by the trace frames, skipping entries without a file. Locations serialize
 to JSON as `"file:line"` strings.
-
-## Root
-
-`Errata\Root` identifies the application directory and the vendor directory beneath it. When no directory is
-given, it is detected from Composer. `isApp()` reports whether a path is inside the application but not the vendor
-tree, and `relative()` makes a path relative to the application root while leaving paths outside it untouched.
-`Origin` and `Fingerprint` use both.
