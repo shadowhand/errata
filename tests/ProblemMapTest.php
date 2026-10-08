@@ -7,6 +7,7 @@ namespace Errata\Tests;
 use Errata\Problem;
 use Errata\ProblemMap;
 use Errata\Tests\Fixtures\NotificationException;
+use Errata\Tests\Fixtures\NotificationProblemFactory;
 use Errata\Tests\Fixtures\Recoverable;
 use Exception;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -36,6 +37,14 @@ final class ProblemMapTest extends TestCase
     public function testReturnsTheFactoryForTheExactClass(): void
     {
         $factory = static fn(NotificationException $_instance): Problem => new Problem();
+        $map = new ProblemMap([NotificationException::class => $factory]);
+
+        $this->assertSame($factory, $map->get(new NotificationException()));
+    }
+
+    public function testReturnsTheFactoryObjectForTheExactClass(): void
+    {
+        $factory = new NotificationProblemFactory();
         $map = new ProblemMap([NotificationException::class => $factory]);
 
         $this->assertSame($factory, $map->get(new NotificationException()));

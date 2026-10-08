@@ -22,15 +22,16 @@ and an `ExtensionList` whose extensions enrich the resulting problem.
 
 ## ProblemMap
 
-`Errata\ProblemMap` maps a throwable class name to a factory `Closure(object): Problem`.
+`Errata\ProblemMap` maps a class name to a factory `Closure(object): Problem`. This can be used for throwables:
 
 ```php
 use Errata\Http\Client\UnprocessableContent;
 use Errata\ProblemMap;
 
 $map = new ProblemMap([
-    ValidationFailed::class => static fn(ValidationFailed $e): UnprocessableContent
-        => new UnprocessableContent(detail: $e->getMessage()),
+    ValidationFailed::class => static fn(ValidationFailed $e): UnprocessableContent => new UnprocessableContent(detail: $e->getMessage()),
+    // Or, if you prefer an object with __invoke:
+    ValidationFailed::class => new UnprocessableContentFactory(),
 ]);
 ```
 

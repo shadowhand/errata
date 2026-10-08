@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Errata;
 
-use Closure;
-
 use function class_implements;
 use function class_parents;
 
@@ -13,7 +11,7 @@ use function class_parents;
  * @api
  * @template T of object
  * @template Tk of class-string
- * @template Tv of Closure(T):Problem
+ * @template Tv of callable(T):Problem
  */
 final readonly class ProblemMap
 {
@@ -23,9 +21,10 @@ final readonly class ProblemMap
     ) {}
 
     /**
+     * @param T $instance
      * @return Tv|null
      */
-    public function get(object $instance): ?Closure
+    public function get(object $instance): ?callable
     {
         $classes = [
             $instance::class,

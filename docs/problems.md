@@ -70,6 +70,23 @@ followed by extension members in insertion order.
 
 The HTTP problem documents described below will also throw when attempting to overwrite `title` or `status`.
 
+## ProblemMap
+
+`Errata\ProblemMap` maps a class name to a factory `Closure(object): Problem`:
+
+```php
+use Errata\Problem;
+use Errata\ProblemMap;
+
+$map = new ProblemMap([
+    ValidationError::class => new ValidationProblemFactory(),
+]);
+```
+
+Lookup checks the exact class first, then parent classes nearest-first, then implemented interfaces, and returns
+the first factory found. When nothing matches, `get()` returns `null` and the transformer falls back to an
+`InternalServerError`.
+
 ## HTTP problems
 
 The `Errata\Http` namespace ships fixed-status problem documents. `Errata\Http\HttpProblem` is the abstract base;
