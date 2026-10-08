@@ -31,11 +31,11 @@
     "require": {
         "php": "^8.4",
         "composer-runtime-api": "^2.0",
-        "php-standard-library/dict": "^6.3",
+        "php-standard-library/dict": "^6.0",
         "php-standard-library/filesystem": "^6.0",
-        "php-standard-library/json": "^6.3",
+        "php-standard-library/json": "^6.0",
         "php-standard-library/str": "^6.0",
-        "php-standard-library/vec": "^6.3",
+        "php-standard-library/vec": "^6.0",
         "psr/http-factory": "^1.0",
         "psr/http-server-middleware": "^1.0",
         "psr/log": "^2.0 || ^3.0"
@@ -76,7 +76,7 @@
         ],
         "format": "mago format",
         "lint": "mago lint",
-        "phpunit": "phpunit -d memory_limit=4G",
+        "phpunit": "phpunit",
         "test": [
             "@phpunit",
             "@coverage"
