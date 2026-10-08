@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
 ### Changed
 
 - `Origin` now accepts `$appDir` and `$vendorDir` parameters directly, instead of `Root` object. This makes
@@ -19,5 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Initial release.
 
-[Unreleased]: https://github.com/shadowhand/errata/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/shadowhand/errata/compare/0.2.0...main
+[0.2.0]: https://github.com/shadowhand/errata/releases/tag/0.2.0
 [0.1.0]: https://github.com/shadowhand/errata/releases/tag/0.1.0
