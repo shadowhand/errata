@@ -9,6 +9,11 @@ use Override;
 use Stringable;
 use Throwable;
 
+use function Psl\Str\Byte\after;
+use function Psl\Str\Byte\starts_with;
+
+use const Psl\Filesystem\SEPARATOR;
+
 /**
  * @internal
  */
@@ -46,6 +51,20 @@ final readonly class Location implements JsonSerializable, Stringable
         public string $file,
         public int $line = 0,
     ) {}
+
+    /**
+     * @param non-empty-string $dir
+     */
+    public function withoutDirectory(string $dir): self
+    {
+        if (!starts_with($this->file, $dir)) {
+            return $this;
+        }
+
+        // @mago-expect analysis:possibly-invalid-argument
+        // @mago-expect analysis:possibly-null-argument
+        return new self(after($this->file, $dir . SEPARATOR), $this->line);
+    }
 
     public function toString(): string
     {

@@ -22,15 +22,16 @@ and an `ExtensionList` whose extensions enrich the resulting problem.
 
 ## ProblemMap
 
-`Errata\ProblemMap` maps a throwable class name to a factory `Closure(object): Problem`.
+`Errata\ProblemMap` maps a class name to a factory `Closure(object): Problem`. This can be used for throwables:
 
 ```php
 use Errata\Http\Client\UnprocessableContent;
 use Errata\ProblemMap;
 
 $map = new ProblemMap([
-    ValidationFailed::class => static fn(ValidationFailed $e): UnprocessableContent
-        => new UnprocessableContent(detail: $e->getMessage()),
+    ValidationFailed::class => static fn(ValidationFailed $e): UnprocessableContent => new UnprocessableContent(detail: $e->getMessage()),
+    // Or, if you prefer an object with __invoke:
+    ValidationFailed::class => new UnprocessableContentFactory(),
 ]);
 ```
 
@@ -98,17 +99,12 @@ Additional constructor options:
 - `Fingerprint` takes `algo`, which defaults to `xxh64` and accepts any `hash()` algorithm, and a `Root`. The hash
   input joins the throwable class, code, and the file path made relative to the application root, so fingerprints
   are stable across systems.
-- `Origin` and `Fingerprint` both take a `Root`.
+- `Origin` takes `appDir` and `vendorDir` to allow picking an application-specific origin by finding the first
+  `Location` that is inside the `appDir` and *not* inside the `vendorDir`.
+- `Fingerprint` takes `appDir` to make the file path relative for increased fingerprint stability.
 
 ### Trace locations
 
 `Errata\Trace\Location` represents one entry in a throwable's stack trace. A location list starts with the
 throwable's own file and line, followed by the trace frames, skipping entries without a file. Locations serialize
 to JSON as `"file:line"` strings.
-
-## Root
-
-`Errata\Root` identifies the application directory and the vendor directory beneath it. When no directory is
-given, it is detected from Composer. `isApp()` reports whether a path is inside the application but not the vendor
-tree, and `relative()` makes a path relative to the application root while leaving paths outside it untouched.
-`Origin` and `Fingerprint` use both.

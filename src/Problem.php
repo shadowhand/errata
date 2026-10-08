@@ -78,27 +78,13 @@ class Problem implements JsonSerializable
      **/
     final public function toArray(): array
     {
-        $members = [];
-
-        if ($this->type !== null) {
-            $members['type'] = $this->type;
-        }
-
-        if ($this->title !== null) {
-            $members['title'] = $this->title;
-        }
-
-        if ($this->detail !== null) {
-            $members['detail'] = $this->detail;
-        }
-
-        if ($this->status !== null) {
-            $members['status'] = $this->status;
-        }
-
-        if ($this->instance !== null) {
-            $members['instance'] = $this->instance;
-        }
+        $members = [
+            'type' => $this->type,
+            'title' => $this->title,
+            'detail' => $this->detail,
+            'status' => $this->status,
+            'instance' => $this->instance,
+        ];
 
         return filter_nulls($members + $this->extensions);
     }
