@@ -12,26 +12,25 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php:
+          - version: '8.5'
+            deps: latest
+          - version: '8.4'
+            deps: latest
+          - version: '8.4'
+            deps: lowest
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Get required PHP version
-        id: php-version
-        run: |
-          version=$(jq -r '.require.php' composer.json | sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*/\1/')
-          if ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+$'; then
-            echo "::error::Could not determine PHP version from require.php in composer.json"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Set up PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
-          php-version: ${{ steps.php-version.outputs.version }}
+          php-version: ${{ matrix.php.version }}
           coverage: pcov
 
       - name: Validate composer
@@ -45,13 +44,16 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.json') }}
-          restore-keys: ${{ runner.os }}-composer-
+          key: ${{ runner.os }}-composer-${{ matrix.php.deps }}-${{ matrix.php.version }}-${{ hashFiles('**/composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-${{ matrix.php.deps }}-${{ matrix.php.version }}-
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GH_PRIVATE_ACCESS || github.token }}"}}'
+        if: matrix.php.deps == 'latest'
         run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install dependencies (lowest versions)
+        if: matrix.php.deps == 'lowest'
+        run: composer update --no-interaction --no-progress --prefer-dist --prefer-lowest
 
       - name: Check
         run: composer run check
@@ -63,4 +65,11 @@ jobs:
         run: composer run analyze
 
       - name: Test
+        if: matrix.php.deps == 'latest'
         run: composer run test
+
+      # In lowest version testing, there may be deprecations and we cannot be sure that code coverage works.
+      # Since we know that latest tests pass with coverage, we can ignore deprecations and skip the coverage check.
+      - name: Test (lowest versions)
+        if: matrix.php.deps == 'lowest'
+        run: composer run phpunit -- --do-not-fail-on-indirect-deprecation
