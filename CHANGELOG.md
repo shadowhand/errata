@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `Origin` now accepts `$appDir` and `$vendorDir` parameters directly, instead of `Root` object. This makes
+  application detection more explicit and reliable, without depending on additional packages.
+
 ## [0.1.0] - 2026-10-05
 
 ### Added

@@ -99,7 +99,9 @@ Additional constructor options:
 - `Fingerprint` takes `algo`, which defaults to `xxh64` and accepts any `hash()` algorithm, and a `Root`. The hash
   input joins the throwable class, code, and the file path made relative to the application root, so fingerprints
   are stable across systems.
-- `Origin` and `Fingerprint` both take a `Root`.
+- `Origin` takes `appDir` and `vendorDir` to allow picking an application-specific origin by finding the first
+  `Location` that is inside the `appDir` and *not* inside the `vendorDir`.
+- `Fingerprint` takes a `Root`.
 
 ### Trace locations
 

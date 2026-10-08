@@ -42,6 +42,15 @@ final class LocationTest extends TestCase
         $this->assertSame('/app/src/File.php', $location->toString());
     }
 
+    public function testItRemovesTheDirectoryPrefix(): void
+    {
+        $valid = new Location('/app/src/File.php')->withoutDirectory('/app');
+        $invalid = new Location('/app/src/File.php')->withoutDirectory('/tmp');
+
+        $this->assertSame('src/File.php', $valid->toString());
+        $this->assertSame('/app/src/File.php', $invalid->toString());
+    }
+
     public function testItTracesTheThrowableAndItsFrames(): void
     {
         $throwable = $this->catchThrowable($this->throwFromHelper(...));
